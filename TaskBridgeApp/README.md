@@ -18,6 +18,11 @@ Sprint 2 updates:
 - Desktop supports `VITE_API_BASE` for easier Windows/WSL setup
 - Desktop adds agent filter dropdown wired to server filtering
 
+Sprint 3 updates:
+- Session history preview endpoint: `/api/tasks/:id/history?limit=25`
+- Dashboard row actions: History modal, Copy session key, quick open Control UI
+- Optional bearer token input in UI (stored locally)
+
 ## Structure
 - `bridge/` REST bridge service
 - `desktop/` Electron + React desktop app

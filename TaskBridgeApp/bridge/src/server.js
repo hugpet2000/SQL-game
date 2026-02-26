@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const app = express();
 app.use(cors());
@@ -83,6 +85,53 @@ app.get('/api/tasks', auth, async (req, res) => {
     res.json({ items: page, total: mapped.length, limit, offset, filters: { q, agentId, status: statusFilter || null } });
   } catch (e) {
     res.status(500).json({ error: 'Failed to read tasks', details: e.message });
+  }
+});
+
+async function resolveSessionJsonl(sessionId) {
+  const agents = await runOpenClawJson(['agents', 'list']);
+  if (!Array.isArray(agents)) return null;
+
+  for (const a of agents) {
+    if (!a?.id) continue;
+    const p = path.join(process.env.HOME || '', '.openclaw', 'agents', a.id, 'sessions', `${sessionId}.jsonl`);
+    try {
+      const content = await readFile(p, 'utf8');
+      return { path: p, content };
+    } catch {
+      // continue
+    }
+  }
+  return null;
+}
+
+app.get('/api/tasks/:id/history', auth, async (req, res) => {
+  const sessionId = String(req.params.id || '').trim();
+  const limit = Math.min(Math.max(Number(req.query.limit || 25), 1), 200);
+  if (!sessionId) return res.status(400).json({ error: 'Missing session id' });
+
+  try {
+    const resolved = await resolveSessionJsonl(sessionId);
+    if (!resolved) return res.json({ items: [], sessionId, found: false });
+
+    const lines = resolved.content.split('\n').map((l) => l.trim()).filter(Boolean);
+    const parsed = [];
+    for (const line of lines) {
+      try {
+        const j = JSON.parse(line);
+        const role = j.role || j?.message?.role || j?.payload?.role || j?.author || null;
+        const rawText = j.text || j?.message?.content || j?.payload?.content || j?.content || '';
+        const text = typeof rawText === 'string' ? rawText : JSON.stringify(rawText);
+        const ts = j.ts || j.timestamp || j.createdAt || null;
+        if (role || text) parsed.push({ role, text: String(text).slice(0, 4000), ts });
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    res.json({ items: parsed.slice(-limit), sessionId, found: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load history', details: e.message });
   }
 });
 
