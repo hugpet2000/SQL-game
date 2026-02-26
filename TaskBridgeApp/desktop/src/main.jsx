@@ -2,626 +2,793 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 const DEFAULT_API = (import.meta.env.VITE_API_BASE || 'http://172.28.202.129:8787').trim();
-const POLL_OK_MS = 5000;
-const POLL_RETRY_MS = 7000;
-const ATTENTION_STALE_MIN = 25;
 
-const tone = {
-  bg: '#f1f5f9',
-  card: '#ffffff',
-  border: '#dbe3ee',
-  text: '#0f172a',
-  muted: '#475569',
-  ok: '#166534',
-  okBg: '#dcfce7',
-  warn: '#92400e',
-  warnBg: '#fef3c7',
-  bad: '#991b1b',
-  badBg: '#fee2e2',
-  info: '#1d4ed8',
-  infoBg: '#dbeafe'
+const STATUS_COLORS = {
+  connected: { bg: '#13361f', fg: '#79e2a5', border: '#215a34' },
+  degraded: { bg: '#3c2a12', fg: '#f7c873', border: '#6b4d20' },
+  offline: { bg: '#3a151a', fg: '#ff9aa7', border: '#6d2831' },
+  busy: { bg: '#16273a', fg: '#93c5fd', border: '#23405f' },
+  idle: { bg: '#1f2632', fg: '#b7c2d6', border: '#39455a' },
+  error: { bg: '#3a151a', fg: '#ff9aa7', border: '#6d2831' },
+  running: { bg: '#16273a', fg: '#93c5fd', border: '#23405f' },
+  queued: { bg: '#3c2a12', fg: '#f7c873', border: '#6b4d20' },
+  failed: { bg: '#3a151a', fg: '#ff9aa7', border: '#6d2831' },
+  success: { bg: '#13361f', fg: '#79e2a5', border: '#215a34' }
 };
 
 function App() {
   const [apiBase, setApiBase] = useState(localStorage.getItem('taskBridgeApi') || DEFAULT_API);
-  const [apiDraft, setApiDraft] = useState(localStorage.getItem('taskBridgeApi') || DEFAULT_API);
   const [authToken, setAuthToken] = useState(localStorage.getItem('taskBridgeToken') || '');
+  const [apiDraft, setApiDraft] = useState(localStorage.getItem('taskBridgeApi') || DEFAULT_API);
   const [tokenDraft, setTokenDraft] = useState(localStorage.getItem('taskBridgeToken') || '');
   const [bridgeManaged, setBridgeManaged] = useState(false);
 
-  const [health, setHealth] = useState({ state: 'loading', text: 'Checking connection…' });
+  const [activeTab, setActiveTab] = useState('home');
+  const [search, setSearch] = useState('');
+  const [agentFilter, setAgentFilter] = useState('all');
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [selectedActivity, setSelectedActivity] = useState(null);
+
+  const [health, setHealth] = useState({ state: 'loading', text: 'Checking bridge…' });
   const [tasks, setTasks] = useState([]);
   const [agents, setAgents] = useState([]);
-  const [selectedTask, setSelectedTask] = useState(null);
-
-  const [diagConfig, setDiagConfig] = useState(null);
-  const [diagLatencyMs, setDiagLatencyMs] = useState(null);
-  const [diagState, setDiagState] = useState({ loading: true, error: '', refreshedAt: null });
   const [metrics, setMetrics] = useState(null);
-
   const [backendVersion, setBackendVersion] = useState(null);
   const [backendSelfcheck, setBackendSelfcheck] = useState(null);
-  const [backendState, setBackendState] = useState({ loading: true, error: '', refreshedAt: null });
+  const [lastSync, setLastSync] = useState(null);
+  const [lastPing, setLastPing] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const [lastSuccessSync, setLastSuccessSync] = useState(null);
-  const [lastAttemptSync, setLastAttemptSync] = useState(null);
-  const [connectionErrors, setConnectionErrors] = useState([]);
-  const [retryTick, setRetryTick] = useState(0);
+  const [autoReconnect, setAutoReconnect] = useState((localStorage.getItem('taskBridgeAutoReconnect') ?? '1') === '1');
+  const [pollMs, setPollMs] = useState(Number(localStorage.getItem('taskBridgePollMs') || 6000));
+  const [method, setMethod] = useState(localStorage.getItem('taskBridgeMethod') || 'http');
+  const [hostDraft, setHostDraft] = useState(localStorage.getItem('taskBridgeHost') || '127.0.0.1');
+  const [portDraft, setPortDraft] = useState(localStorage.getItem('taskBridgePort') || '8787');
 
-  const [history, setHistory] = useState([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyState, setHistoryState] = useState({ loading: false, error: '' });
+  const [theme, setTheme] = useState(localStorage.getItem('taskBridgeTheme') || 'dark');
+  const [compactMode, setCompactMode] = useState((localStorage.getItem('taskBridgeCompact') ?? '0') === '1');
+  const [relativeTime, setRelativeTime] = useState((localStorage.getItem('taskBridgeRelativeTime') ?? '0') === '1');
+  const [logLevel, setLogLevel] = useState(localStorage.getItem('taskBridgeLogLevel') || 'info');
 
-  const [taskActionState, setTaskActionState] = useState({ pinging: false, message: '', error: '' });
-  const [toasts, setToasts] = useState([]);
+  const headers = useMemo(() => (authToken.trim() ? { Authorization: `Bearer ${authToken.trim()}` } : {}), [authToken]);
 
-  const headers = useMemo(() => {
-    const h = {};
-    if (authToken.trim()) h.Authorization = `Bearer ${authToken.trim()}`;
-    return h;
-  }, [authToken]);
-
-  const pushToast = (kind, text) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setToasts((old) => [...old, { id, kind, text }]);
-    window.setTimeout(() => setToasts((old) => old.filter((t) => t.id !== id)), 3800);
-  };
-
-  const humanError = (error) => {
-    const raw = String(error || 'Unknown error');
-    const msg = raw.toLowerCase();
-    if (msg.includes('failed to fetch') || msg.includes('networkerror')) return 'Cannot reach the bridge service. Check if TaskBridge is running and the API URL is correct.';
-    if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('forbidden')) return 'Access denied. Verify your token in Connection settings.';
-    if (msg.includes('404')) return 'Requested data was not found. The selected session may have ended.';
-    return `We could not complete that action. Details: ${raw}`;
-  };
-
-  const recordConnectionIssue = (err) => {
-    const entry = { at: new Date(), text: humanError(err) };
-    setConnectionErrors((old) => [entry, ...old].slice(0, 5));
-  };
+  const themeVars = useMemo(() => {
+    const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+    return isDark
+      ? {
+          bg: '#0d1117',
+          card: '#161b22',
+          cardAlt: '#1c2330',
+          border: '#2b3543',
+          text: '#e6edf3',
+          muted: '#9fb0c4',
+          shadow: '0 10px 24px rgba(0,0,0,.24)'
+        }
+      : {
+          bg: '#f4f7fb',
+          card: '#ffffff',
+          cardAlt: '#f8fafc',
+          border: '#d9e1ec',
+          text: '#0f172a',
+          muted: '#475569',
+          shadow: '0 8px 18px rgba(15,23,42,.08)'
+        };
+  }, [theme]);
 
   const fetchMaybeJson = async (url, init = {}) => {
-    const r = await fetch(url, { ...init, headers: { ...headers, ...(init.headers || {}) } });
-    const text = await r.text();
+    const res = await fetch(url, { ...init, headers: { ...headers, ...(init.headers || {}) } });
+    const txt = await res.text();
     let body = null;
-    try {
-      body = text ? JSON.parse(text) : null;
-    } catch {
-      body = text;
-    }
-    if (!r.ok) {
-      const details = body?.error || body?.details || body || `${r.status} ${r.statusText}`;
-      throw new Error(String(details));
-    }
+    try { body = txt ? JSON.parse(txt) : null; } catch { body = txt; }
+    if (!res.ok) throw new Error(String(body?.error || body?.details || body || `${res.status} ${res.statusText}`));
     return body;
   };
 
-  const fetchJson = async (url, init = {}) => {
-    const data = await fetchMaybeJson(url, init);
-    if (data == null || typeof data !== 'object') throw new Error('Expected JSON response');
-    return data;
+  const formatTs = (value) => {
+    if (!value) return '-';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    if (!relativeTime) return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+    const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
   };
 
-  const refreshDiagnostics = async (base = apiBase) => {
-    setDiagState((s) => ({ ...s, loading: true, error: '' }));
-    try {
-      const t0 = performance.now();
-      const [config, metricsData] = await Promise.all([
-        fetchJson(`${base}/api/config`),
-        fetchJson(`${base}/api/metrics`)
-      ]);
-      const latency = Math.round(performance.now() - t0);
-      setDiagConfig(config);
-      setMetrics(metricsData);
-      setDiagLatencyMs(latency);
-      setDiagState({ loading: false, error: '', refreshedAt: new Date() });
-    } catch (e) {
-      const plain = humanError(e.message || e);
-      setDiagState({ loading: false, error: plain, refreshedAt: new Date() });
-      recordConnectionIssue(e.message || e);
-    }
-  };
+  const connectionState = useMemo(() => {
+    if (health.state === 'down') return 'offline';
+    if (error || backendSelfcheck?.ok === false) return 'degraded';
+    if (health.state === 'ok') return 'connected';
+    return 'degraded';
+  }, [health.state, error, backendSelfcheck]);
 
-  const refreshBackendStatus = async (base = apiBase) => {
-    setBackendState((s) => ({ ...s, loading: true, error: '' }));
+  const mappedAgents = useMemo(() => {
+    return (agents || []).map((a) => {
+      const statusRaw = (a.status || a.state || '').toLowerCase();
+      const status = statusRaw.includes('error') ? 'error' : statusRaw.includes('busy') || statusRaw.includes('active') ? 'busy' : 'idle';
+      const linkedTasks = tasks.filter((t) => String(t.agentId || t.agent || '') === String(a.id || a.agentId || a.name || ''));
+      const currentTask = linkedTasks.find((t) => /active|running/i.test(t.status || '')) || linkedTasks[0] || null;
+      return {
+        id: String(a.id || a.agentId || a.name || Math.random()),
+        name: a.name || a.agentName || a.id || 'Unknown agent',
+        role: a.role || a.kind || 'Worker',
+        status,
+        taskText: currentTask?.title || currentTask?.kind || currentTask?.id || 'No active task',
+        lastUpdated: a.updatedAt || a.lastHeartbeat || currentTask?.updatedAt || null,
+        heartbeat: a.lastHeartbeat || a.updatedAt || null,
+        tasks: linkedTasks
+      };
+    });
+  }, [agents, tasks]);
+
+  const filteredAgents = useMemo(() => {
+    return mappedAgents.filter((a) => {
+      const q = search.trim().toLowerCase();
+      const matchQ = !q || `${a.name} ${a.role} ${a.taskText}`.toLowerCase().includes(q);
+      const matchF = agentFilter === 'all' || a.status === agentFilter;
+      return matchQ && matchF;
+    });
+  }, [mappedAgents, search, agentFilter]);
+
+  const selectedAgent = useMemo(() => {
+    return mappedAgents.find((a) => a.id === selectedAgentId) || filteredAgents[0] || null;
+  }, [mappedAgents, filteredAgents, selectedAgentId]);
+
+  const activityFeed = useMemo(() => {
+    return [...tasks]
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))
+      .slice(0, 80)
+      .map((t) => ({
+        id: t.id || `${t.agentId}-${t.updatedAt}`,
+        ts: t.updatedAt || t.createdAt,
+        agent: t.agentId || t.agent || 'unknown-agent',
+        action: t.title || t.kind || 'Task update',
+        status: normalizeTaskStatus(t.status)
+      }));
+  }, [tasks]);
+
+  const stats = useMemo(() => {
+    const activeAgents = mappedAgents.filter((a) => a.status === 'busy').length;
+    const running = tasks.filter((t) => /active|running/i.test(t.status || '')).length;
+    const queued = tasks.filter((t) => /queued|pending/i.test(t.status || '')).length;
+    const failed = tasks.filter((t) => /fail|abort|error/i.test(t.status || '')).length;
+    return { activeAgents, running, queued, failed };
+  }, [mappedAgents, tasks]);
+
+  const refreshAll = async (base = apiBase) => {
+    setLoading(true);
+    setError('');
     try {
-      const [version, selfcheck] = await Promise.all([
+      const healthData = await fetchMaybeJson(`${base}/health`);
+      setHealth({ state: healthData?.ok ? 'ok' : 'degraded', text: healthData?.ok ? 'Bridge reachable' : 'Bridge degraded' });
+      const [tasksData, agentsData, metricsData, versionData, selfcheckData] = await Promise.allSettled([
+        fetchMaybeJson(`${base}/api/tasks?limit=500&offset=0`),
+        fetchMaybeJson(`${base}/api/agents`),
+        fetchMaybeJson(`${base}/api/metrics`),
         fetchMaybeJson(`${base}/api/version`),
         fetchMaybeJson(`${base}/api/selfcheck`)
       ]);
-      setBackendVersion(version);
-      setBackendSelfcheck(selfcheck);
-      setBackendState({ loading: false, error: '', refreshedAt: new Date() });
+      if (tasksData.status === 'fulfilled') setTasks(tasksData.value?.items || []);
+      if (agentsData.status === 'fulfilled') setAgents(agentsData.value?.items || []);
+      if (metricsData.status === 'fulfilled') setMetrics(metricsData.value || null);
+      if (versionData.status === 'fulfilled') setBackendVersion(versionData.value || null);
+      if (selfcheckData.status === 'fulfilled') setBackendSelfcheck(selfcheckData.value || null);
+      const hadSoftFail = [tasksData, agentsData].some((x) => x.status === 'rejected');
+      if (hadSoftFail) setError('Connected, but some data endpoints failed.');
+      setLastSync(new Date());
+      setLastPing(new Date());
     } catch (e) {
-      const plain = humanError(e.message || e);
-      setBackendState({ loading: false, error: plain, refreshedAt: new Date() });
-      recordConnectionIssue(e.message || e);
+      setHealth({ state: 'down', text: 'Bridge offline or unreachable' });
+      setError(String(e.message || e));
+      setLastPing(new Date());
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const refreshAll = async (base = apiBase) => {
-    setLastAttemptSync(new Date());
-    try {
-      const h = await fetchJson(`${base}/health`);
-      setHealth({ state: h.ok ? 'ok' : 'degraded', text: h.ok ? 'Bridge is reachable' : 'Bridge reports degraded health' });
-    } catch (e) {
-      setHealth({ state: 'down', text: 'Bridge is offline or unreachable' });
-      recordConnectionIssue(e.message || e);
-      return false;
-    }
-
-    try {
-      const params = new URLSearchParams({ limit: '500', offset: '0' });
-      const [tasksData, agentsData] = await Promise.all([
-        fetchJson(`${base}/api/tasks?${params.toString()}`),
-        fetchJson(`${base}/api/agents`)
-      ]);
-      setTasks(tasksData.items || []);
-      setAgents(agentsData.items || []);
-      setLastSuccessSync(new Date());
-      return true;
-    } catch (e) {
-      setHealth({ state: 'degraded', text: 'Connected, but task details could not be refreshed' });
-      recordConnectionIssue(e.message || e);
-      return false;
-    }
-  };
-
-  const optimisticRefresh = async (base = apiBase) => {
-    const result = await Promise.allSettled([refreshAll(base), refreshDiagnostics(base), refreshBackendStatus(base)]);
-    const hasFailure = result.some((r) => r.status === 'rejected');
-    if (hasFailure) pushToast('error', 'Refresh completed with issues. See System health for details.');
-    else pushToast('success', 'Dashboard refreshed.');
-  };
-
-  const refreshSelectedHistory = async (task = selectedTask) => {
-    if (!task?.id) return;
-    setHistoryState({ loading: true, error: '' });
-    setHistory([]);
-    try {
-      const data = await fetchJson(`${apiBase}/api/tasks/${encodeURIComponent(task.id)}/history?limit=25`);
-      setHistory(data.items || []);
-      setHistoryState({ loading: false, error: '' });
-    } catch (e) {
-      setHistoryState({ loading: false, error: humanError(e.message || e) });
-      setHistory([]);
-    }
-  };
-
-  const openHistory = async (task) => {
-    setSelectedTask(task);
-    setHistoryOpen(true);
-    await refreshSelectedHistory(task);
-  };
-
-  const pingSelected = async () => {
-    if (!selectedTask?.id) return;
-    setTaskActionState({ pinging: true, message: '', error: '' });
-    try {
-      const data = await fetchJson(`${apiBase}/api/tasks/${encodeURIComponent(selectedTask.id)}/ping`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'dashboard ping', agentId: selectedTask.agentId || undefined })
-      });
-      setTaskActionState({ pinging: false, message: data.message || 'Ping sent.', error: '' });
-      pushToast('success', 'Ping sent successfully');
-    } catch (e) {
-      setTaskActionState({ pinging: false, message: '', error: humanError(e.message || e) });
-    }
-  };
-
-  const runSelfCheck = async () => {
-    await refreshBackendStatus(apiBase);
-    if (backendSelfcheck?.ok) pushToast('success', 'Self-check passed.');
-    else pushToast('error', 'Self-check completed. Review System health.');
-  };
-
-  const copyText = async (text, label) => {
-    try {
-      await navigator.clipboard?.writeText(text || '');
-      setTaskActionState((s) => ({ ...s, message: `${label} copied`, error: '' }));
-      pushToast('success', `${label} copied`);
-    } catch {
-      setTaskActionState((s) => ({ ...s, error: `Could not copy ${label.toLowerCase()}. Try again.` }));
-    }
-  };
-
-  const copySupportBundleSummary = async () => {
-    const summary = [
-      `TaskBridge support summary`,
-      `API: ${apiBase}`,
-      `Connection: ${connectionModel.label}`,
-      `Last successful sync: ${formatTs(lastSuccessSync)}`,
-      `Tasks loaded: ${tasks.length}`,
-      `Agents loaded: ${agents.length}`,
-      `Backend version: ${backendVersion?.version || backendVersion?.tag || '-'}`,
-      `Self-check ok: ${backendSelfcheck?.ok == null ? '-' : String(backendSelfcheck.ok)}`,
-      `Recent issue: ${connectionErrors[0]?.text || 'none'}`
-    ].join('\n');
-    await copyText(summary, 'Support bundle summary');
   };
 
   useEffect(() => {
     let off = null;
     (async () => {
-      if (window.bridgeCtl?.getUrl) {
-        try {
-          const detected = await window.bridgeCtl.getUrl();
-          if (detected) {
-            setBridgeManaged(true);
-            setApiBase(detected);
-            setApiDraft(detected);
-            localStorage.setItem('taskBridgeApi', detected);
-          }
-          if (window.bridgeCtl.onStatus) {
-            off = window.bridgeCtl.onStatus((payload) => {
-              if (payload?.url) {
-                setApiBase(payload.url);
-                setApiDraft(payload.url);
-                localStorage.setItem('taskBridgeApi', payload.url);
-              }
-            });
-          }
-        } catch {
-          // ignore bridgeCtl probe errors
+      if (!window.bridgeCtl?.getUrl) return;
+      try {
+        const detected = await window.bridgeCtl.getUrl();
+        if (detected) {
+          setBridgeManaged(true);
+          setApiBase(detected);
+          setApiDraft(detected);
+          localStorage.setItem('taskBridgeApi', detected);
         }
+        if (window.bridgeCtl.onStatus) {
+          off = window.bridgeCtl.onStatus((payload) => {
+            if (!payload?.url) return;
+            setApiBase(payload.url);
+            setApiDraft(payload.url);
+            localStorage.setItem('taskBridgeApi', payload.url);
+          });
+        }
+      } catch {
+        // noop
       }
     })();
-    return () => {
-      if (typeof off === 'function') off();
-    };
+    return () => typeof off === 'function' && off();
   }, []);
 
-  useEffect(() => {
-    optimisticRefresh(apiBase);
-  }, [apiBase, authToken]);
+  useEffect(() => { refreshAll(apiBase); }, [apiBase, authToken]);
 
   useEffect(() => {
-    const intervalMs = health.state === 'down' ? POLL_RETRY_MS : POLL_OK_MS;
-    const t = setInterval(async () => {
-      setRetryTick((n) => n + 1);
-      await optimisticRefresh(apiBase);
-    }, intervalMs);
+    if (!autoReconnect) return;
+    const ms = Number.isFinite(pollMs) && pollMs > 0 ? pollMs : 6000;
+    const t = setInterval(() => refreshAll(apiBase), ms);
     return () => clearInterval(t);
-  }, [apiBase, authToken, health.state]);
+  }, [apiBase, authToken, autoReconnect, pollMs]);
 
-  const mismatchFlag = useMemo(() => {
-    const versionInstance = backendVersion?.instanceId || backendVersion?.instance || backendVersion?.id || null;
-    const selfcheckInstance = backendSelfcheck?.instanceId || backendSelfcheck?.instance || backendSelfcheck?.id || null;
-    if (!versionInstance || !selfcheckInstance) return false;
-    return String(versionInstance) !== String(selfcheckInstance);
-  }, [backendVersion, backendSelfcheck]);
+  useEffect(() => { localStorage.setItem('taskBridgeTheme', theme); }, [theme]);
+  useEffect(() => { localStorage.setItem('taskBridgeCompact', compactMode ? '1' : '0'); }, [compactMode]);
+  useEffect(() => { localStorage.setItem('taskBridgeRelativeTime', relativeTime ? '1' : '0'); }, [relativeTime]);
 
-  const connectionModel = useMemo(() => {
-    if (health.state === 'down') {
-      return {
-        key: 'offline',
-        label: 'Offline',
-        detail: 'Trying again automatically every 7 seconds.',
-        chipBg: tone.badBg,
-        chipFg: tone.bad
-      };
-    }
-
-    const hasDiagIssue = Boolean(diagState.error || backendState.error || mismatchFlag);
-    if (hasDiagIssue) {
-      return {
-        key: 'degraded',
-        label: 'Degraded',
-        detail: 'Connected, but some checks are failing. See System health.',
-        chipBg: tone.warnBg,
-        chipFg: tone.warn
-      };
-    }
-
-    const reconnecting = health.state === 'loading' || (!lastSuccessSync && lastAttemptSync);
-    if (reconnecting) {
-      return {
-        key: 'reconnecting',
-        label: 'Reconnecting',
-        detail: 'Attempting to restore healthy sync.',
-        chipBg: tone.infoBg,
-        chipFg: tone.info
-      };
-    }
-
-    return {
-      key: 'connected',
-      label: 'Connected',
-      detail: 'Everything looks healthy.',
-      chipBg: tone.okBg,
-      chipFg: tone.ok
-    };
-  }, [health.state, diagState.error, backendState.error, mismatchFlag, lastAttemptSync, lastSuccessSync]);
-
-  const derived = useMemo(() => {
-    const now = Date.now();
-    const active = tasks.filter((t) => (t.status || '').toLowerCase() === 'active');
-    const aborted = tasks.filter((t) => (t.status || '').toLowerCase() === 'aborted');
-    const stale = active.filter((t) => {
-      const ms = t.ageMs ?? (t.updatedAt ? now - new Date(t.updatedAt).getTime() : 0);
-      return ms > ATTENTION_STALE_MIN * 60 * 1000;
-    });
-    const quiet = tasks.filter((t) => {
-      const updated = new Date(t.updatedAt || 0).getTime();
-      return Number.isFinite(updated) && now - updated > 2 * 60 * 60 * 1000;
-    }).slice(0, 8);
-    return { active, aborted, stale, quiet };
-  }, [tasks, retryTick]);
-
-  const applyConnection = () => {
-    localStorage.setItem('taskBridgeApi', apiDraft.trim());
+  const saveConnection = () => {
+    const computed = method === 'http' || method === 'https' ? `${method}://${hostDraft.trim()}:${String(portDraft).trim()}` : apiDraft.trim();
+    localStorage.setItem('taskBridgeMethod', method);
+    localStorage.setItem('taskBridgeHost', hostDraft.trim());
+    localStorage.setItem('taskBridgePort', String(portDraft).trim());
+    localStorage.setItem('taskBridgeApi', computed);
     localStorage.setItem('taskBridgeToken', tokenDraft.trim());
-    setApiBase(apiDraft.trim());
+    setApiBase(computed);
+    setApiDraft(computed);
     setAuthToken(tokenDraft.trim());
-    pushToast('success', 'Connection settings saved');
   };
 
-  const restartCmdUnix = "pkill -f 'TaskBridgeApp/bridge/src/server.js' || true; HOST=0.0.0.0 nohup node /home/hugog/.openclaw/workspace/TaskBridgeApp/bridge/src/server.js >/tmp/task-bridge.log 2>&1 &";
-  const restartCmdWindows = 'wsl.exe -d Ubuntu -- bash -lc "pkill -f \\\"TaskBridgeApp/bridge/src/server.js\\\" || true; HOST=0.0.0.0 nohup node /home/hugog/.openclaw/workspace/TaskBridgeApp/bridge/src/server.js >/tmp/task-bridge.log 2>&1 &"';
+  const testConnection = async () => {
+    try {
+      await fetchMaybeJson(`${apiDraft.trim()}/health`);
+      setError('');
+      setHealth({ state: 'ok', text: 'Test connection successful' });
+    } catch (e) {
+      setError(String(e.message || e));
+      setHealth({ state: 'down', text: 'Test connection failed' });
+    }
+  };
+
+  const exportDiagnostics = () => {
+    const payload = {
+      apiBase,
+      connectionState,
+      health,
+      lastSync,
+      lastPing,
+      backendVersion,
+      backendSelfcheck,
+      metrics,
+      agents: agents.length,
+      tasks: tasks.length,
+      error,
+      generatedAt: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `taskbridge-diagnostics-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const clearCache = () => {
+    ['taskBridgeToken', 'taskBridgeApi'].forEach((k) => localStorage.removeItem(k));
+    setTokenDraft('');
+    setAuthToken('');
+    setApiDraft(DEFAULT_API);
+    setApiBase(DEFAULT_API);
+  };
+
+  const contentPadding = compactMode ? 10 : 16;
 
   return (
-    <main style={{ fontFamily: 'Inter, Segoe UI, sans-serif', background: tone.bg, minHeight: '100vh', padding: 16, color: tone.text }}>
-      <header style={{ position: 'sticky', top: 0, zIndex: 20, paddingBottom: 10, background: tone.bg }}>
-        <h1 style={{ margin: '0 0 6px 0' }}>TaskBridge dashboard</h1>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <Chip text={connectionModel.label} bg={connectionModel.chipBg} fg={connectionModel.chipFg} />
-          <span style={{ color: tone.muted, fontSize: 13 }}>{connectionModel.detail}</span>
-          <span style={{ color: tone.muted, fontSize: 13 }}>Last successful sync: {formatTs(lastSuccessSync)}</span>
-        </div>
-      </header>
+    <div style={{ minHeight: '100vh', background: themeVars.bg, color: themeVars.text, fontFamily: 'Inter, Segoe UI, sans-serif', display: 'grid', gridTemplateColumns: '240px 1fr' }}>
+      <SidebarNav
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        connectionState={connectionState}
+        version={backendVersion?.version || backendVersion?.tag || 'dev'}
+        vars={themeVars}
+      />
 
-      <section style={{ marginTop: 10, marginBottom: 14, padding: 12, border: `1px solid ${tone.border}`, borderRadius: 12, background: tone.card }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input value={apiDraft} onChange={(e) => setApiDraft(e.target.value)} placeholder="API base URL" style={inputStyle(330)} />
-          <input value={tokenDraft} onChange={(e) => setTokenDraft(e.target.value)} placeholder="Bearer token (optional)" style={inputStyle(260)} />
-          <button onClick={applyConnection}>Save connection</button>
-          <button onClick={() => optimisticRefresh(apiBase)}>Refresh health</button>
-          <button onClick={runSelfCheck}>Run self-check</button>
-          <button onClick={copySupportBundleSummary}>Copy support bundle summary</button>
-          {bridgeManaged ? (
-            <button
-              onClick={async () => {
-                if (!window.bridgeCtl?.restart) return;
-                try {
-                  const info = await window.bridgeCtl.restart();
-                  if (info?.url) {
-                    setApiBase(info.url);
-                    setApiDraft(info.url);
-                  }
-                  await optimisticRefresh(info?.url || apiBase);
-                  pushToast('success', 'Bridge restart requested');
-                } catch (e) {
-                  pushToast('error', humanError(e.message || e));
-                }
-              }}
-            >
-              Restart bridge
-            </button>
-          ) : null}
-          <button onClick={() => copyText(restartCmdUnix, 'Linux/macOS restart command')}>Copy restart cmd (Linux)</button>
-          <button onClick={() => copyText(restartCmdWindows, 'Windows restart command')}>Copy restart cmd (Windows)</button>
-        </div>
-      </section>
+      <div style={{ padding: contentPadding }}>
+        <TopHeaderBar
+          title={activeTab === 'home' ? 'Home' : activeTab === 'agents' ? 'Agents' : 'Settings'}
+          onRefresh={() => refreshAll(apiBase)}
+          loading={loading}
+          connectionState={connectionState}
+          search={activeTab === 'agents' ? search : ''}
+          onSearch={setSearch}
+          vars={themeVars}
+        />
 
-      <section style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginBottom: 14 }}>
-        <SummaryCard title="What needs attention now" value={`${derived.aborted.length + derived.stale.length}`} subtitle={`${derived.aborted.length} aborted · ${derived.stale.length} stale active`} toneName={derived.aborted.length + derived.stale.length > 0 ? 'warn' : 'ok'} />
-        <SummaryCard title="Active work" value={String(derived.active.length)} subtitle={`${agents.length} agents available`} toneName="info" />
-        <SummaryCard title="Recently quiet" value={String(derived.quiet.length)} subtitle="No updates in the last 2 hours" toneName="muted" />
-        <SummaryCard title="System health" value={connectionModel.label} subtitle={backendSelfcheck?.ok ? 'Self-check passing' : 'Review diagnostics'} toneName={connectionModel.key === 'connected' ? 'ok' : connectionModel.key === 'offline' ? 'bad' : 'warn'} />
-      </section>
+        {activeTab === 'home' && (
+          <HomeTab
+            stats={stats}
+            activityFeed={activityFeed}
+            agents={mappedAgents}
+            health={health}
+            error={error}
+            lastPing={lastPing}
+            lastSync={lastSync}
+            metrics={metrics}
+            formatTs={formatTs}
+            onStatClick={(target) => {
+              setActiveTab('agents');
+              if (target === 'running') setAgentFilter('busy');
+              if (target === 'failed') setAgentFilter('error');
+              if (target === 'queued') setSearch('queued');
+            }}
+            onOpenActivity={setSelectedActivity}
+            onReconnect={() => refreshAll(apiBase)}
+            vars={themeVars}
+          />
+        )}
 
-      <section style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 12, alignItems: 'start' }}>
-        <Panel title="Active work">
-          {derived.active.length === 0 ? (
-            <EmptyState title="No active work right now" text="You're all clear. New active sessions will appear here automatically." />
-          ) : (
-            <TaskList tasks={derived.active.slice(0, 12)} onSelect={(t) => setSelectedTask(t)} onHistory={openHistory} selectedId={selectedTask?.id} />
-          )}
-        </Panel>
+        {activeTab === 'agents' && (
+          <AgentsTab
+            agents={filteredAgents}
+            selectedAgent={selectedAgent}
+            selectedAgentId={selectedAgent?.id}
+            onSelectAgent={(id) => setSelectedAgentId(id)}
+            filter={agentFilter}
+            onFilter={setAgentFilter}
+            onRefresh={() => refreshAll(apiBase)}
+            error={error}
+            formatTs={formatTs}
+            vars={themeVars}
+          />
+        )}
 
-        <Panel title="What needs attention now">
-          {derived.aborted.length + derived.stale.length === 0 ? (
-            <EmptyState title="Nothing urgent" text="No aborted or stale active sessions detected." />
-          ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {derived.aborted.slice(0, 6).map((t) => (
-                <IssueRow key={t.id} kind="Aborted" text={`${t.id} (${t.agentId || 'unknown agent'})`} />
-              ))}
-              {derived.stale.slice(0, 6).map((t) => (
-                <IssueRow key={t.id} kind="Stale" text={`${t.id} has been active for > ${ATTENTION_STALE_MIN} min`} />
-              ))}
-            </div>
-          )}
-        </Panel>
-      </section>
-
-      <section style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Panel title="Recently quiet">
-          {derived.quiet.length === 0 ? (
-            <EmptyState title="No quiet sessions" text="Everything has seen recent activity." />
-          ) : (
-            <div style={{ display: 'grid', gap: 6 }}>
-              {derived.quiet.map((t) => (
-                <div key={t.id} style={{ border: `1px solid ${tone.border}`, borderRadius: 8, padding: 8 }}>
-                  <div style={{ fontWeight: 600 }}>{t.id}</div>
-                  <div style={{ color: tone.muted, fontSize: 12 }}>Last update: {formatTs(t.updatedAt)}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-
-        <Panel title="System health">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <HealthRow label="Backend version" value={backendVersion?.version || backendVersion?.tag || '-'} />
-            <HealthRow label="Self-check" value={backendSelfcheck?.ok == null ? '-' : backendSelfcheck.ok ? 'Passing' : 'Needs review'} />
-            <HealthRow label="Latency" value={`${diagLatencyMs ?? '-'} ms`} />
-            <HealthRow label="Requests / Errors" value={`${metrics?.requests ?? '-'} / ${metrics?.errors ?? '-'}`} />
-            {mismatchFlag ? <IssueRow kind="Warning" text="Version and self-check instance IDs do not match." /> : null}
-            {diagState.error ? <IssueRow kind="Diagnostics" text={diagState.error} /> : null}
-            {backendState.error ? <IssueRow kind="Backend" text={backendState.error} /> : null}
-            {connectionErrors.length > 0 ? (
-              <div style={{ fontSize: 12, color: tone.muted }}>
-                Last issue: {connectionErrors[0].text} ({formatTs(connectionErrors[0].at)})
-              </div>
-            ) : null}
-          </div>
-        </Panel>
-      </section>
-
-      {selectedTask ? (
-        <section style={{ marginTop: 12 }}>
-          <Panel title="Selected session actions">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <div style={{ fontSize: 13, color: tone.muted }}>Session: <b>{selectedTask.id}</b></div>
-              <button disabled={taskActionState.pinging} onClick={pingSelected}>{taskActionState.pinging ? 'Sending ping…' : 'Ping session'}</button>
-              <button onClick={() => openHistory(selectedTask)}>View history</button>
-              <button onClick={() => copyText(selectedTask.id || '', 'Session ID')}>Copy session id</button>
-              <button onClick={() => copyText(selectedTask.key || '', 'Session key')}>Copy session key</button>
-            </div>
-            {taskActionState.message ? <div style={{ marginTop: 8, color: tone.ok, fontSize: 13 }}>{taskActionState.message}</div> : null}
-            {taskActionState.error ? <div style={{ marginTop: 8, color: tone.bad, fontSize: 13 }}>{taskActionState.error}</div> : null}
-          </Panel>
-        </section>
-      ) : null}
-
-      {historyOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', display: 'grid', placeItems: 'center' }}>
-          <div style={{ width: 'min(960px, 92vw)', maxHeight: '82vh', background: 'white', borderRadius: 10, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff', borderBottom: `1px solid ${tone.border}`, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ margin: 0 }}>Session history</h3>
-                <div style={{ fontSize: 12, color: tone.muted }}>{selectedTask?.id}</div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => refreshSelectedHistory(selectedTask)}>Refresh</button>
-                <button onClick={() => setHistoryOpen(false)}>Close</button>
-              </div>
-            </div>
-
-            <div style={{ overflow: 'auto', padding: 12, maxHeight: '70vh' }}>
-              {historyState.loading ? <p style={{ color: tone.muted }}>Loading history…</p> : null}
-              {!historyState.loading && historyState.error ? <p style={{ color: tone.bad }}>{historyState.error}</p> : null}
-              {!historyState.loading && !historyState.error && history.length === 0 ? <p>No history available yet.</p> : null}
-
-              {!historyState.loading && !historyState.error && history.map((m, i) => (
-                <div key={i} style={{ borderTop: '1px solid #f0f0f0', padding: '10px 0' }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                    <Chip text={(m.role || 'unknown').toUpperCase()} bg="#e2e8f0" fg="#0f172a" />
-                    <span style={{ fontSize: 12, color: tone.muted }}>{formatTs(m.ts)}</span>
-                  </div>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{m.text || ''}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div style={{ position: 'fixed', right: 12, bottom: 12, display: 'grid', gap: 8, zIndex: 60 }}>
-        {toasts.map((t) => (
-          <div key={t.id} style={{ minWidth: 260, maxWidth: 420, padding: '8px 10px', borderRadius: 8, color: '#fff', background: t.kind === 'error' ? '#b91c1c' : '#15803d', boxShadow: '0 6px 20px rgba(0,0,0,.15)' }}>
-            {t.text}
-          </div>
-        ))}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            method={method}
+            setMethod={setMethod}
+            hostDraft={hostDraft}
+            setHostDraft={setHostDraft}
+            portDraft={portDraft}
+            setPortDraft={setPortDraft}
+            apiDraft={apiDraft}
+            setApiDraft={setApiDraft}
+            tokenDraft={tokenDraft}
+            setTokenDraft={setTokenDraft}
+            onSave={saveConnection}
+            onTest={testConnection}
+            autoReconnect={autoReconnect}
+            setAutoReconnect={(v) => {
+              setAutoReconnect(v);
+              localStorage.setItem('taskBridgeAutoReconnect', v ? '1' : '0');
+            }}
+            pollMs={pollMs}
+            setPollMs={(v) => {
+              setPollMs(v);
+              localStorage.setItem('taskBridgePollMs', String(v));
+            }}
+            theme={theme}
+            setTheme={setTheme}
+            compactMode={compactMode}
+            setCompactMode={setCompactMode}
+            relativeTime={relativeTime}
+            setRelativeTime={setRelativeTime}
+            onClearCache={clearCache}
+            onExportDiagnostics={exportDiagnostics}
+            logLevel={logLevel}
+            setLogLevel={(v) => {
+              setLogLevel(v);
+              localStorage.setItem('taskBridgeLogLevel', v);
+            }}
+            bridgeManaged={bridgeManaged}
+            vars={themeVars}
+          />
+        )}
       </div>
-    </main>
+
+      {selectedActivity && (
+        <DetailsDrawer vars={themeVars} title="Activity details" onClose={() => setSelectedActivity(null)}>
+          <div style={{ display: 'grid', gap: 10 }}>
+            <KV label="Timestamp" value={formatTs(selectedActivity.ts)} vars={themeVars} />
+            <KV label="Agent" value={selectedActivity.agent} vars={themeVars} />
+            <KV label="Action" value={selectedActivity.action} vars={themeVars} />
+            <div><StatusBadge status={selectedActivity.status} /></div>
+          </div>
+        </DetailsDrawer>
+      )}
+    </div>
   );
 }
 
-function inputStyle(minWidth) {
-  return { minWidth, padding: 8, borderRadius: 8, border: `1px solid ${tone.border}` };
+function SidebarNav({ activeTab, onChange, connectionState, version, vars }) {
+  const item = (id, label) => (
+    <button
+      onClick={() => onChange(id)}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        background: activeTab === id ? vars.cardAlt : 'transparent',
+        color: vars.text,
+        border: `1px solid ${activeTab === id ? vars.border : 'transparent'}`,
+        padding: '10px 12px',
+        borderRadius: 10,
+        cursor: 'pointer'
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <aside style={{ borderRight: `1px solid ${vars.border}`, padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ padding: 10, borderRadius: 12, background: vars.card, border: `1px solid ${vars.border}`, boxShadow: vars.shadow }}>
+        <div style={{ fontSize: 12, color: vars.muted }}>TaskBridgeApp</div>
+        <div style={{ fontWeight: 700 }}>Desktop Console</div>
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {item('home', 'Home')}
+        {item('agents', 'Agents')}
+        {item('settings', 'Settings')}
+      </div>
+      <div style={{ marginTop: 'auto', border: `1px solid ${vars.border}`, borderRadius: 10, padding: 10, background: vars.card }}>
+        <div style={{ marginBottom: 6 }}><StatusBadge status={connectionState} /></div>
+        <div style={{ fontSize: 12, color: vars.muted }}>Version {version}</div>
+      </div>
+    </aside>
+  );
 }
 
-function Panel({ title, children }) {
+function TopHeaderBar({ title, onRefresh, loading, connectionState, search, onSearch, vars }) {
   return (
-    <div style={{ background: tone.card, border: `1px solid ${tone.border}`, borderRadius: 12, padding: 12 }}>
-      <h3 style={{ marginTop: 0, marginBottom: 10, fontSize: 16 }}>{title}</h3>
+    <div style={{ position: 'sticky', top: 0, zIndex: 4, background: vars.bg, paddingBottom: 10, marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
+        <h1 style={{ margin: 0, fontSize: 24 }}>{title}</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {search !== '' && <SearchInput value={search} onChange={onSearch} placeholder="Search agents or tasks" vars={vars} />}
+          <StatusBadge status={connectionState} />
+          <button onClick={onRefresh}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeTab({ stats, activityFeed, agents, health, error, lastPing, lastSync, metrics, formatTs, onStatClick, onOpenActivity, onReconnect, vars }) {
+  const disconnected = health.state === 'down';
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+        <StatCard title="Active Agents" value={String(stats.activeAgents)} status="busy" onClick={() => onStatClick('activeAgents')} vars={vars} />
+        <StatCard title="Running Tasks" value={String(stats.running)} status="running" onClick={() => onStatClick('running')} vars={vars} />
+        <StatCard title="Queued Tasks" value={String(stats.queued)} status="queued" onClick={() => onStatClick('queued')} vars={vars} />
+        <StatCard title="Failed / Alerts" value={String(stats.failed)} status={stats.failed > 0 ? 'failed' : 'success'} onClick={() => onStatClick('failed')} vars={vars} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 12 }}>
+        <Card title="Live Activity Feed" vars={vars}>
+          {activityFeed.length === 0 ? (
+            <EmptyState title="No activity yet" text="Task activity appears here in real time." vars={vars} />
+          ) : (
+            <div style={{ maxHeight: 360, overflow: 'auto', display: 'grid', gap: 8 }}>
+              {activityFeed.map((item) => (
+                <ActivityFeedItem key={item.id} item={item} onClick={() => onOpenActivity(item)} formatTs={formatTs} vars={vars} />
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card title="Agents Snapshot" vars={vars}>
+          {agents.length === 0 ? (
+            <EmptyState title="No agents discovered" text="Once connected, active agents will show here." vars={vars} />
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {agents.slice(0, 10).map((a) => (
+                <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, border: `1px solid ${vars.border}`, borderRadius: 10, padding: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{a.name}</div>
+                    <div style={{ color: vars.muted, fontSize: 12 }}>{a.role}</div>
+                  </div>
+                  <StatusBadge status={a.status} />
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <Card title="System Health" vars={vars}>
+        {disconnected ? (
+          <EmptyState title="Disconnected" text="Bridge is unavailable. Check settings and reconnect." actionLabel="Reconnect" onAction={onReconnect} vars={vars} />
+        ) : (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <KV label="Connection" value={health.text} vars={vars} />
+            <KV label="Last ping" value={formatTs(lastPing)} vars={vars} />
+            <KV label="Last sync" value={formatTs(lastSync)} vars={vars} />
+            <KV label="CPU / RAM" value={`${metrics?.cpu ?? '-'} / ${metrics?.memory ?? metrics?.ram ?? '-'}`} vars={vars} />
+            {error && <div style={{ color: '#ff9aa7', fontSize: 13 }}>⚠ {error}</div>}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function AgentsTab({ agents, selectedAgent, selectedAgentId, onSelectAgent, filter, onFilter, onRefresh, error, formatTs, vars }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 12 }}>
+      <Card title="Agents" vars={vars}>
+        <div style={{ display: 'grid', gap: 8, marginBottom: 8 }}>
+          <FilterChips
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'busy', label: 'Busy' },
+              { id: 'idle', label: 'Idle' },
+              { id: 'error', label: 'Error' }
+            ]}
+            value={filter}
+            onChange={onFilter}
+          />
+          <button onClick={onRefresh}>Refresh list</button>
+        </div>
+        <div style={{ maxHeight: '68vh', overflow: 'auto', display: 'grid', gap: 8 }}>
+          {agents.length === 0 ? (
+            <EmptyState title="No matching agents" text="Try another search/filter or verify connection." vars={vars} />
+          ) : (
+            agents.map((agent) => (
+              <AgentListItem key={agent.id} agent={agent} selected={selectedAgentId === agent.id} onClick={() => onSelectAgent(agent.id)} formatTs={formatTs} vars={vars} />
+            ))
+          )}
+        </div>
+      </Card>
+
+      <Card title="Agent Details" vars={vars}>
+        {!selectedAgent ? (
+          <EmptyState title="No agent selected" text="Choose an agent from the left list to inspect details." vars={vars} />
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{selectedAgent.name}</div>
+                <div style={{ color: vars.muted }}>{selectedAgent.role}</div>
+              </div>
+              <StatusBadge status={selectedAgent.status} />
+            </div>
+
+            <KV label="Last heartbeat" value={formatTs(selectedAgent.heartbeat)} vars={vars} />
+
+            <Card title="Current Task" vars={vars}>
+              <div style={{ fontWeight: 600 }}>{selectedAgent.taskText}</div>
+              <div style={{ color: vars.muted, fontSize: 12, marginTop: 4 }}>Updated {formatTs(selectedAgent.lastUpdated)}</div>
+            </Card>
+
+            <Card title="Recent Tasks" vars={vars}>
+              {selectedAgent.tasks.length === 0 ? (
+                <EmptyState title="No tasks" text="No task history available for this agent." vars={vars} />
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle(vars)}>Task</th>
+                      <th style={thStyle(vars)}>Status</th>
+                      <th style={thStyle(vars)}>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedAgent.tasks.slice(0, 8).map((t) => (
+                      <tr key={t.id || `${t.kind}-${t.updatedAt}`}>
+                        <td style={tdStyle(vars)}>{t.title || t.kind || t.id}</td>
+                        <td style={tdStyle(vars)}><StatusBadge status={normalizeTaskStatus(t.status)} /></td>
+                        <td style={tdStyle(vars)}>{formatTs(t.updatedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Card>
+
+            <Card title="Logs / Events" vars={vars}>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {(selectedAgent.tasks.slice(0, 5)).map((t) => (
+                  <div key={`${t.id}-log`} style={{ border: `1px solid ${vars.border}`, borderRadius: 8, padding: 8, background: vars.cardAlt }}>
+                    <div style={{ fontWeight: 600 }}>{t.id || 'task'}</div>
+                    <div style={{ color: vars.muted, fontSize: 12 }}>{t.title || t.kind || 'Task event'} · {formatTs(t.updatedAt)}</div>
+                  </div>
+                ))}
+                <button onClick={() => navigator.clipboard?.writeText(JSON.stringify(selectedAgent.tasks.slice(0, 15), null, 2))}>Copy events JSON</button>
+              </div>
+            </Card>
+
+            {error ? <div style={{ color: '#ff9aa7' }}>Error: {error}</div> : null}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function SettingsTab(props) {
+  const { vars } = props;
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <SettingsSection title="Connection" vars={vars}>
+        <SettingsRow label="Method">
+          <select value={props.method} onChange={(e) => props.setMethod(e.target.value)}>
+            <option value="http">http</option>
+            <option value="https">https</option>
+            <option value="custom">custom url</option>
+          </select>
+        </SettingsRow>
+        {props.method !== 'custom' ? (
+          <>
+            <SettingsRow label="Host"><input value={props.hostDraft} onChange={(e) => props.setHostDraft(e.target.value)} /></SettingsRow>
+            <SettingsRow label="Port"><input value={props.portDraft} onChange={(e) => props.setPortDraft(e.target.value)} /></SettingsRow>
+          </>
+        ) : (
+          <SettingsRow label="API URL"><input value={props.apiDraft} onChange={(e) => props.setApiDraft(e.target.value)} /></SettingsRow>
+        )}
+        <SettingsRow label="Token"><input value={props.tokenDraft} onChange={(e) => props.setTokenDraft(e.target.value)} placeholder="Bearer token" /></SettingsRow>
+        <SettingsRow label="Auto reconnect"><input type="checkbox" checked={props.autoReconnect} onChange={(e) => props.setAutoReconnect(e.target.checked)} /></SettingsRow>
+        <SettingsRow label="Polling interval (ms)"><input type="number" value={props.pollMs} onChange={(e) => props.setPollMs(Number(e.target.value))} /></SettingsRow>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={props.onTest}>Test connection</button>
+          <button onClick={props.onSave}>Save connection</button>
+          {props.bridgeManaged && <span style={{ color: vars.muted, fontSize: 12 }}>Bridge URL managed by desktop bridgeCtl when available.</span>}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Display" vars={vars}>
+        <SettingsRow label="Theme">
+          <select value={props.theme} onChange={(e) => props.setTheme(e.target.value)}>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">System</option>
+          </select>
+        </SettingsRow>
+        <SettingsRow label="Compact mode"><input type="checkbox" checked={props.compactMode} onChange={(e) => props.setCompactMode(e.target.checked)} /></SettingsRow>
+        <SettingsRow label="Relative timestamps"><input type="checkbox" checked={props.relativeTime} onChange={(e) => props.setRelativeTime(e.target.checked)} /></SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title="Data / Debug" vars={vars}>
+        <SettingsRow label="Log level">
+          <select value={props.logLevel} onChange={(e) => props.setLogLevel(e.target.value)}>
+            <option value="debug">debug</option>
+            <option value="info">info</option>
+            <option value="warn">warn</option>
+            <option value="error">error</option>
+          </select>
+        </SettingsRow>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={props.onClearCache}>Clear cache</button>
+          <button onClick={props.onExportDiagnostics}>Export diagnostics</button>
+        </div>
+      </SettingsSection>
+    </div>
+  );
+}
+
+function Card({ title, children, vars }) {
+  return (
+    <div style={{ background: vars.card, border: `1px solid ${vars.border}`, borderRadius: 14, padding: 12, boxShadow: vars.shadow }}>
+      {title ? <div style={{ fontWeight: 700, marginBottom: 10 }}>{title}</div> : null}
       {children}
     </div>
   );
 }
 
-function SummaryCard({ title, value, subtitle, toneName }) {
-  const map = {
-    ok: { bg: tone.okBg, fg: tone.ok },
-    info: { bg: tone.infoBg, fg: tone.info },
-    warn: { bg: tone.warnBg, fg: tone.warn },
-    bad: { bg: tone.badBg, fg: tone.bad },
-    muted: { bg: '#e2e8f0', fg: '#334155' }
-  };
-  const c = map[toneName] || map.muted;
+function StatCard({ title, value, status, onClick, vars }) {
   return (
-    <div style={{ border: `1px solid ${tone.border}`, background: tone.card, borderRadius: 12, padding: 12 }}>
-      <div style={{ color: tone.muted, fontSize: 12 }}>{title}</div>
-      <div style={{ marginTop: 6, marginBottom: 6, fontSize: 26, fontWeight: 700 }}>{value}</div>
-      <Chip text={subtitle} bg={c.bg} fg={c.fg} />
+    <button onClick={onClick} style={{ textAlign: 'left', background: vars.card, color: vars.text, border: `1px solid ${vars.border}`, borderRadius: 14, padding: 12, cursor: 'pointer', boxShadow: vars.shadow }}>
+      <div style={{ color: vars.muted, fontSize: 12 }}>{title}</div>
+      <div style={{ fontSize: 30, fontWeight: 700, margin: '4px 0 8px' }}>{value}</div>
+      <StatusBadge status={status} />
+    </button>
+  );
+}
+
+function StatusBadge({ status }) {
+  const key = (status || 'idle').toLowerCase();
+  const c = STATUS_COLORS[key] || STATUS_COLORS.idle;
+  return <span style={{ display: 'inline-block', background: c.bg, color: c.fg, border: `1px solid ${c.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{status}</span>;
+}
+
+function AgentListItem({ agent, selected, onClick, formatTs, vars }) {
+  return (
+    <button onClick={onClick} style={{ textAlign: 'left', background: selected ? vars.cardAlt : vars.card, color: vars.text, border: `1px solid ${selected ? '#4b75b8' : vars.border}`, borderRadius: 10, padding: 10, cursor: 'pointer' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <div>
+          <div style={{ fontWeight: 700 }}>{agent.name}</div>
+          <div style={{ fontSize: 12, color: vars.muted }}>{agent.role}</div>
+        </div>
+        <StatusBadge status={agent.status} />
+      </div>
+      <div style={{ fontSize: 13, marginTop: 6 }}>{agent.taskText}</div>
+      <div style={{ fontSize: 12, color: vars.muted, marginTop: 4 }}>Updated {formatTs(agent.lastUpdated)}</div>
+    </button>
+  );
+}
+
+function SearchInput({ value, onChange, placeholder, vars }) {
+  return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={{ minWidth: 220, padding: '8px 10px', borderRadius: 10, border: `1px solid ${vars.border}`, background: vars.card, color: vars.text }} />;
+}
+
+function FilterChips({ options, value, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {options.map((o) => (
+        <button key={o.id} onClick={() => onChange(o.id)} style={{ borderRadius: 999, padding: '4px 10px', border: '1px solid #3a4558', background: value === o.id ? '#223247' : '#161b22', color: '#c6d4e3', cursor: 'pointer' }}>{o.label}</button>
+      ))}
     </div>
   );
 }
 
-function Chip({ text, bg, fg }) {
-  return <span style={{ background: bg, color: fg, borderRadius: 999, padding: '4px 10px', fontSize: 12, fontWeight: 600 }}>{text}</span>;
-}
-
-function EmptyState({ title, text }) {
+function DetailsDrawer({ title, children, onClose, vars }) {
   return (
-    <div style={{ border: `1px dashed ${tone.border}`, borderRadius: 10, padding: 12 }}>
-      <div style={{ fontWeight: 700, marginBottom: 4 }}>{title}</div>
-      <div style={{ color: tone.muted, fontSize: 13 }}>{text}</div>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', justifyContent: 'flex-end', zIndex: 30 }} onClick={onClose}>
+      <div style={{ width: 420, maxWidth: '90vw', background: vars.card, borderLeft: `1px solid ${vars.border}`, padding: 14 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <strong>{title}</strong>
+          <button onClick={onClose}>Close</button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
 
-function TaskList({ tasks, onSelect, onHistory, selectedId }) {
+function ActivityFeedItem({ item, onClick, formatTs, vars }) {
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      {tasks.map((t) => {
-        const isSelected = selectedId === t.id;
-        return (
-          <div key={t.id} style={{ border: `1px solid ${isSelected ? '#93c5fd' : tone.border}`, background: isSelected ? '#eff6ff' : '#fff', borderRadius: 10, padding: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 700 }}>{t.id}</div>
-                <div style={{ fontSize: 12, color: tone.muted }}>{t.agentId || 'unknown agent'} · {t.kind || 'task'} · updated {formatTs(t.updatedAt)}</div>
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => onSelect(t)}>Select</button>
-                <button onClick={() => onHistory(t)}>History</button>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+    <button onClick={onClick} style={{ textAlign: 'left', border: `1px solid ${vars.border}`, background: vars.cardAlt, color: vars.text, borderRadius: 10, padding: 8, cursor: 'pointer' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ fontSize: 12, color: vars.muted }}>{formatTs(item.ts)} · {item.agent}</div>
+        <StatusBadge status={item.status} />
+      </div>
+      <div style={{ marginTop: 4 }}>{item.action}</div>
+    </button>
+  );
+}
+
+function SettingsSection({ title, children, vars }) {
+  return <Card title={title} vars={vars}><div style={{ display: 'grid', gap: 8 }}>{children}</div></Card>;
+}
+
+function SettingsRow({ label, children }) {
+  return <label style={{ display: 'grid', gridTemplateColumns: '220px 1fr', alignItems: 'center', gap: 8 }}><span>{label}</span>{children}</label>;
+}
+
+function EmptyState({ title, text, actionLabel, onAction, vars }) {
+  return (
+    <div style={{ border: `1px dashed ${vars.border}`, borderRadius: 10, padding: 12 }}>
+      <div style={{ fontWeight: 700 }}>{title}</div>
+      <div style={{ color: vars.muted, fontSize: 13, marginTop: 4 }}>{text}</div>
+      {actionLabel && <button style={{ marginTop: 8 }} onClick={onAction}>{actionLabel}</button>}
     </div>
   );
 }
 
-function IssueRow({ kind, text }) {
+function KV({ label, value, vars }) {
   return (
-    <div style={{ border: `1px solid ${tone.border}`, borderRadius: 8, padding: 8, background: '#fff' }}>
-      <div style={{ fontSize: 12, color: tone.warn, fontWeight: 700 }}>{kind}</div>
-      <div style={{ fontSize: 13 }}>{text}</div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: `1px dashed ${vars.border}`, paddingBottom: 5 }}>
+      <span style={{ color: vars.muted }}>{label}</span>
+      <span style={{ fontWeight: 600 }}>{String(value ?? '-')}</span>
     </div>
   );
 }
 
-function HealthRow({ label, value }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, borderBottom: `1px dashed ${tone.border}`, paddingBottom: 5 }}>
-      <span style={{ color: tone.muted }}>{label}</span>
-      <span style={{ fontWeight: 600 }}>{value}</span>
-    </div>
-  );
+function thStyle(vars) {
+  return { textAlign: 'left', color: vars.muted, borderBottom: `1px solid ${vars.border}`, padding: '6px 4px' };
+}
+function tdStyle(vars) {
+  return { borderBottom: `1px solid ${vars.border}`, padding: '6px 4px' };
 }
 
-function formatTs(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+function normalizeTaskStatus(status) {
+  const s = String(status || '').toLowerCase();
+  if (s.includes('fail') || s.includes('abort') || s.includes('error')) return 'failed';
+  if (s.includes('queue') || s.includes('pending')) return 'queued';
+  if (s.includes('run') || s.includes('active')) return 'running';
+  if (s.includes('ok') || s.includes('done') || s.includes('success')) return 'success';
+  return 'idle';
 }
 
 createRoot(document.getElementById('root')).render(<App />);
