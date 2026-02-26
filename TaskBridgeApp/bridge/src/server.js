@@ -24,7 +24,10 @@ const metrics = {
   totalLatencyMs: 0,
   avgLatencyMs: 0,
   cacheHits: 0,
-  cacheMisses: 0
+  cacheMisses: 0,
+  cliCalls: 0,
+  cliRetries: 0,
+  cliFailures: 0
 };
 
 const runtimeConfig = {
@@ -36,18 +39,51 @@ const runtimeConfig = {
   cliTimeoutMs: 15000,
   requestTimeoutMs: 20000,
   maxPingText: 1200,
-  cacheTtlMs: 2000
+  cacheTtlMs: 2000,
+  cliRetryCount: 2,
+  cliRetryBaseDelayMs: 250,
+  cliRetryMaxDelayMs: 2000,
+  breakerFailureThreshold: 3,
+  breakerCooldownMs: 8000
 };
 
 const cache = {
-  sessions: { value: null, expiresAt: 0 },
-  agents: { value: null, expiresAt: 0 }
+  sessions: { value: null, expiresAt: 0, fetchedAt: 0 },
+  agents: { value: null, expiresAt: 0, fetchedAt: 0 }
+};
+
+const inFlight = {
+  sessions: null,
+  agents: null
+};
+
+const breakers = {
+  sessions: createBreaker(),
+  agents: createBreaker()
+};
+
+const health = {
+  openclawReachable: false,
+  lastSuccessAt: null,
+  lastFailureAt: null,
+  consecutiveFailures: 0,
+  latencySamplesMs: []
 };
 
 let bridgeVersion = {
   commit: 'unknown',
   branch: 'unknown'
 };
+
+function createBreaker() {
+  return {
+    state: 'closed',
+    failures: 0,
+    openedAt: null,
+    cooldownUntil: null,
+    lastError: null
+  };
+}
 
 function loadRuntimeConfig() {
   runtimeConfig.host = process.env.HOST || '127.0.0.1';
@@ -59,10 +95,33 @@ function loadRuntimeConfig() {
   runtimeConfig.requestTimeoutMs = Number(process.env.REQUEST_TIMEOUT_MS || 20000);
   runtimeConfig.maxPingText = Number(process.env.MAX_PING_TEXT || 1200);
   runtimeConfig.cacheTtlMs = Number(process.env.CACHE_TTL_MS || 2000);
+  runtimeConfig.cliRetryCount = Number(process.env.CLI_RETRY_COUNT || 2);
+  runtimeConfig.cliRetryBaseDelayMs = Number(process.env.CLI_RETRY_BASE_DELAY_MS || 250);
+  runtimeConfig.cliRetryMaxDelayMs = Number(process.env.CLI_RETRY_MAX_DELAY_MS || 2000);
+  runtimeConfig.breakerFailureThreshold = Number(process.env.BREAKER_FAILURE_THRESHOLD || 3);
+  runtimeConfig.breakerCooldownMs = Number(process.env.BREAKER_COOLDOWN_MS || 8000);
 }
 
-function sendError(res, status, error, details, code) {
-  return res.status(status).json({ error, details, code });
+function sendError(res, status, error, details, code, extra = {}) {
+  return res.status(status).json({
+    error,
+    details,
+    code,
+    ...extra
+  });
+}
+
+function createStableError(err, fallbackCode = 'INTERNAL_ERROR') {
+  const code = err?.code || fallbackCode;
+  const message = err?.message || 'Unknown error';
+  return {
+    code,
+    message,
+    retriable: Boolean(err?.retriable),
+    attempts: Number(err?.attempts || 1),
+    timeoutMs: err?.timeoutMs ?? null,
+    cause: err?.cause ?? null
+  };
 }
 
 function withTimeout(promise, ms, code = 'TIMEOUT') {
@@ -71,6 +130,8 @@ function withTimeout(promise, ms, code = 'TIMEOUT') {
     timer = setTimeout(() => {
       const err = new Error(`Operation timed out after ${ms}ms`);
       err.code = code;
+      err.timeoutMs = ms;
+      err.retriable = true;
       reject(err);
     }, ms);
   });
@@ -90,28 +151,173 @@ function sanitizePingText(input) {
   return text.slice(0, runtimeConfig.maxPingText);
 }
 
-async function runOpenClawJson(args, timeoutMs = runtimeConfig.cliTimeoutMs) {
-  const { stdout } = await withTimeout(
-    execFileAsync(runtimeConfig.openclawBin, [...args, '--json'], {
-      timeout: timeoutMs,
-      maxBuffer: 4 * 1024 * 1024,
-      env: {
-        ...process.env,
-        PATH: `${runtimeConfig.openclawPathPrefix}:${process.env.PATH || ''}`
-      }
-    }),
-    timeoutMs + 200,
-    'CLI_TIMEOUT'
-  );
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  try {
-    return JSON.parse(stdout);
-  } catch (e) {
-    const err = new Error('Failed to parse JSON from OpenClaw CLI');
-    err.code = 'CLI_JSON_PARSE';
-    err.details = e.message;
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function updateLatencySample(ms) {
+  health.latencySamplesMs.push(ms);
+  if (health.latencySamplesMs.length > 200) health.latencySamplesMs.shift();
+}
+
+function calcP95(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
+  return sorted[idx];
+}
+
+function markOpenclawSuccess(latencyMs) {
+  health.openclawReachable = true;
+  health.lastSuccessAt = nowIso();
+  health.consecutiveFailures = 0;
+  if (typeof latencyMs === 'number') updateLatencySample(latencyMs);
+}
+
+function markOpenclawFailure() {
+  health.openclawReachable = false;
+  health.lastFailureAt = nowIso();
+  health.consecutiveFailures += 1;
+}
+
+function isTransientCliError(err) {
+  const knownCodes = new Set(['ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'ENOBUFS', 'EAI_AGAIN', 'CLI_TIMEOUT']);
+  if (knownCodes.has(err?.code)) return true;
+
+  const message = `${err?.message || ''} ${err?.stderr || ''}`.toLowerCase();
+  if (message.includes('timed out')) return true;
+  if (message.includes('temporarily unavailable')) return true;
+  if (message.includes('resource busy')) return true;
+
+  if (typeof err?.code === 'number' && err.code !== 0) {
+    return message.includes('internal') || message.includes('failed to connect') || message.includes('try again');
+  }
+
+  return false;
+}
+
+function nextBackoffMs(attempt) {
+  const base = runtimeConfig.cliRetryBaseDelayMs;
+  const max = runtimeConfig.cliRetryMaxDelayMs;
+  const raw = Math.min(max, base * (2 ** (attempt - 1)));
+  const jitter = Math.floor(Math.random() * Math.max(20, Math.floor(raw * 0.2)));
+  return raw + jitter;
+}
+
+function ensureBreakerAllows(key) {
+  const breaker = breakers[key];
+  if (!breaker) return;
+
+  if (breaker.state === 'open') {
+    if (breaker.cooldownUntil && Date.now() >= breaker.cooldownUntil) {
+      breaker.state = 'half-open';
+      return;
+    }
+
+    const err = new Error(`Circuit open for ${key}`);
+    err.code = 'CIRCUIT_OPEN';
+    err.retriable = true;
+    err.cause = {
+      key,
+      cooldownUntil: breaker.cooldownUntil ? new Date(breaker.cooldownUntil).toISOString() : null,
+      lastError: breaker.lastError
+    };
     throw err;
   }
+}
+
+function recordBreakerSuccess(key) {
+  const breaker = breakers[key];
+  if (!breaker) return;
+  breaker.state = 'closed';
+  breaker.failures = 0;
+  breaker.openedAt = null;
+  breaker.cooldownUntil = null;
+  breaker.lastError = null;
+}
+
+function recordBreakerFailure(key, err) {
+  const breaker = breakers[key];
+  if (!breaker) return;
+
+  breaker.failures += 1;
+  breaker.lastError = err?.message || err?.code || 'unknown';
+
+  if (breaker.failures >= runtimeConfig.breakerFailureThreshold) {
+    breaker.state = 'open';
+    breaker.openedAt = Date.now();
+    breaker.cooldownUntil = Date.now() + runtimeConfig.breakerCooldownMs;
+  }
+}
+
+async function runOpenClawJson(args, timeoutMs = runtimeConfig.cliTimeoutMs, options = {}) {
+  const retries = Number.isFinite(options.retries) ? options.retries : runtimeConfig.cliRetryCount;
+  const expensiveKey = options.expensiveKey || null;
+
+  metrics.cliCalls += 1;
+
+  if (expensiveKey) ensureBreakerAllows(expensiveKey);
+
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
+    const started = Date.now();
+
+    try {
+      const { stdout } = await withTimeout(
+        execFileAsync(runtimeConfig.openclawBin, [...args, '--json'], {
+          timeout: timeoutMs,
+          maxBuffer: 4 * 1024 * 1024,
+          env: {
+            ...process.env,
+            PATH: `${runtimeConfig.openclawPathPrefix}:${process.env.PATH || ''}`
+          }
+        }),
+        timeoutMs + 250,
+        'CLI_TIMEOUT'
+      );
+
+      let parsed;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch (e) {
+        const parseErr = new Error('Failed to parse JSON from OpenClaw CLI');
+        parseErr.code = 'CLI_JSON_PARSE';
+        parseErr.details = e.message;
+        parseErr.retriable = false;
+        throw parseErr;
+      }
+
+      markOpenclawSuccess(Date.now() - started);
+      if (expensiveKey) recordBreakerSuccess(expensiveKey);
+
+      return parsed;
+    } catch (rawErr) {
+      const transient = isTransientCliError(rawErr);
+      const err = rawErr;
+      err.retriable = transient;
+      err.attempts = attempt;
+      err.timeoutMs = timeoutMs;
+
+      markOpenclawFailure();
+      lastErr = err;
+
+      if (expensiveKey) recordBreakerFailure(expensiveKey, err);
+
+      const canRetry = transient && attempt <= retries;
+      if (!canRetry) break;
+
+      metrics.cliRetries += 1;
+      await sleep(nextBackoffMs(attempt));
+    }
+  }
+
+  metrics.cliFailures += 1;
+  throw lastErr;
 }
 
 function extractReadableText(value, depth = 0) {
@@ -163,36 +369,137 @@ function normalizeHistoryEntry(j) {
   return { role, text, ts };
 }
 
+function ageFromFetchedAt(fetchedAt) {
+  if (!fetchedAt) return null;
+  return Math.max(0, Date.now() - fetchedAt);
+}
+
 async function getCachedJson(key, fetcher) {
   const now = Date.now();
   const entry = cache[key];
   if (entry && entry.value && entry.expiresAt > now) {
     metrics.cacheHits += 1;
-    return { data: entry.value, cache: 'hit' };
+    return { data: entry.value, cache: 'hit', ageMs: ageFromFetchedAt(entry.fetchedAt) };
   }
 
   metrics.cacheMisses += 1;
   const data = await fetcher();
   cache[key] = {
     value: data,
+    fetchedAt: Date.now(),
     expiresAt: now + runtimeConfig.cacheTtlMs
   };
-  return { data, cache: 'miss' };
+  return { data, cache: 'miss', ageMs: 0 };
+}
+
+function getDedupePromise(key, factory) {
+  if (inFlight[key]) return inFlight[key];
+  inFlight[key] = Promise.resolve()
+    .then(factory)
+    .finally(() => {
+      inFlight[key] = null;
+    });
+  return inFlight[key];
 }
 
 function clearLookupCaches() {
-  cache.sessions = { value: null, expiresAt: 0 };
-  cache.agents = { value: null, expiresAt: 0 };
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  cache.sessions = { value: null, expiresAt: 0, fetchedAt: 0 };
+  cache.agents = { value: null, expiresAt: 0, fetchedAt: 0 };
 }
 
 async function getSessionsData() {
-  const result = await getCachedJson('sessions', () => runOpenClawJson(['sessions', '--all-agents']));
-  const sessions = Array.isArray(result.data?.sessions) ? result.data.sessions : [];
-  return { sessions, cache: result.cache };
+  return getDedupePromise('sessions', async () => {
+    const result = await getCachedJson('sessions', () => runOpenClawJson(['sessions', '--all-agents'], runtimeConfig.cliTimeoutMs, { expensiveKey: 'sessions' }));
+    const sessions = Array.isArray(result.data?.sessions) ? result.data.sessions : [];
+    return { sessions, cache: result.cache, ageMs: result.ageMs };
+  });
+}
+
+async function getAgentsData() {
+  return getDedupePromise('agents', async () => {
+    const result = await getCachedJson('agents', () => runOpenClawJson(['agents', 'list'], runtimeConfig.cliTimeoutMs, { expensiveKey: 'agents' }));
+    const agents = Array.isArray(result.data) ? result.data : [];
+    return { agents, cache: result.cache, ageMs: result.ageMs };
+  });
+}
+
+function toRelativeTime(tsMs) {
+  if (!Number.isFinite(tsMs)) return 'unknown';
+  const delta = Math.max(0, Date.now() - tsMs);
+  const sec = Math.floor(delta / 1000);
+  if (sec < 10) return 'just now';
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ago`;
+}
+
+function mapSessionStatus(s) {
+  if (s.abortedLastRun) return 'Attention needed';
+  const ageMs = Number(s.ageMs || 0);
+  if (ageMs > 12 * 60 * 60 * 1000) return 'Stale';
+  if (ageMs > 60 * 60 * 1000) return 'Idle';
+  return 'Active';
+}
+
+function getRiskFlags(s) {
+  const flags = [];
+  const ageMs = Number(s.ageMs || 0);
+  if (s.abortedLastRun) flags.push('abortedLastRun');
+  if (ageMs > 6 * 60 * 60 * 1000) flags.push('staleSession');
+  if (!s.agentId) flags.push('unknownAgent');
+  if ((s.contextTokens || 0) > 120000) flags.push('highContextTokens');
+  return flags;
+}
+
+function summarizeSessions(sessions, agentsMap) {
+  const now = Date.now();
+  const activeThresholdMs = 30 * 60 * 1000;
+  const staleThresholdMs = 6 * 60 * 60 * 1000;
+
+  let activeSessions = 0;
+  let staleSessions = 0;
+  let abortedSessions = 0;
+  let recent15m = 0;
+  let recent60m = 0;
+
+  const byAgent = new Map();
+
+  for (const s of sessions) {
+    const ageMs = Number(s.ageMs ?? (s.updatedAt ? now - s.updatedAt : Number.POSITIVE_INFINITY));
+
+    if (ageMs <= activeThresholdMs && !s.abortedLastRun) activeSessions += 1;
+    if (ageMs >= staleThresholdMs) staleSessions += 1;
+    if (s.abortedLastRun) abortedSessions += 1;
+    if (ageMs <= 15 * 60 * 1000) recent15m += 1;
+    if (ageMs <= 60 * 60 * 1000) recent60m += 1;
+
+    const aId = s.agentId || 'unknown';
+    const current = byAgent.get(aId) || { agentId: aId, agentName: agentsMap.get(aId) || aId, sessions: 0 };
+    current.sessions += 1;
+    byAgent.set(aId, current);
+  }
+
+  const topAgents = Array.from(byAgent.values())
+    .sort((a, b) => b.sessions - a.sessions)
+    .slice(0, 5);
+
+  return {
+    totals: {
+      sessions: sessions.length,
+      activeSessions,
+      staleSessions,
+      abortedSessions
+    },
+    recentActivity: {
+      updatedLast15m: recent15m,
+      updatedLast60m: recent60m
+    },
+    topAgents
+  };
 }
 
 async function detectGitVersion() {
@@ -242,8 +549,26 @@ app.get('/health', async (_req, res) => {
     const status = await runOpenClawJson(['status']);
     res.json({ ok: true, service: 'task-bridge', ts: new Date().toISOString(), status });
   } catch (e) {
-    return sendError(res, 503, 'Health check failed', e.message, e.code || 'HEALTH_CHECK_FAILED');
+    const stable = createStableError(e, 'HEALTH_CHECK_FAILED');
+    return sendError(res, 503, 'Health check failed', stable.message, stable.code, { diagnostics: stable });
   }
+});
+
+app.get('/api/healthz', (_req, res) => {
+  const p95LatencyMs = calcP95(health.latencySamplesMs);
+  const anyOpen = Object.values(breakers).some((b) => b.state === 'open');
+  const ok = health.openclawReachable || health.lastSuccessAt !== null;
+
+  res.status(ok ? 200 : 503).json({
+    ok,
+    service: 'task-bridge',
+    now: nowIso(),
+    openclawReachable: health.openclawReachable,
+    lastSuccessAt: health.lastSuccessAt,
+    consecutiveFailures: health.consecutiveFailures,
+    latencyP95Ms: p95LatencyMs,
+    breakerOpen: anyOpen
+  });
 });
 
 app.get('/api/version', (_req, res) => {
@@ -264,19 +589,30 @@ app.get('/api/selfcheck', async (_req, res) => {
     pid: SERVER_PID,
     uptimeSec: Math.floor(process.uptime()),
     openclawBin: runtimeConfig.openclawBin,
-    openclawStatus: null
+    openclawStatus: null,
+    openclawReachable: health.openclawReachable,
+    lastSuccessAt: health.lastSuccessAt,
+    consecutiveFailures: health.consecutiveFailures,
+    latencyP95Ms: calcP95(health.latencySamplesMs),
+    cacheAgeMs: {
+      sessions: ageFromFetchedAt(cache.sessions.fetchedAt),
+      agents: ageFromFetchedAt(cache.agents.fetchedAt)
+    }
   };
 
   try {
     const status = await runOpenClawJson(['status']);
     details.openclawStatus = status;
+    details.openclawReachable = true;
     return res.json({ ok: true, details });
   } catch (e) {
+    const stable = createStableError(e, 'SELFCHECK_FAILED');
     return res.status(503).json({
       ok: false,
       details,
-      error: e.message,
-      code: e.code || 'SELFCHECK_FAILED'
+      error: stable.message,
+      code: stable.code,
+      diagnostics: stable
     });
   }
 });
@@ -288,7 +624,10 @@ app.post('/api/reload-config', auth, (req, res) => {
     maxPingText: runtimeConfig.maxPingText,
     authEnabled: Boolean(runtimeConfig.authToken),
     cacheTtlMs: runtimeConfig.cacheTtlMs,
-    openclawBin: runtimeConfig.openclawBin
+    openclawBin: runtimeConfig.openclawBin,
+    cliRetryCount: runtimeConfig.cliRetryCount,
+    breakerFailureThreshold: runtimeConfig.breakerFailureThreshold,
+    breakerCooldownMs: runtimeConfig.breakerCooldownMs
   };
 
   loadRuntimeConfig();
@@ -300,13 +639,15 @@ app.post('/api/reload-config', auth, (req, res) => {
     maxPingText: runtimeConfig.maxPingText,
     authEnabled: Boolean(runtimeConfig.authToken),
     cacheTtlMs: runtimeConfig.cacheTtlMs,
-    openclawBin: runtimeConfig.openclawBin
+    openclawBin: runtimeConfig.openclawBin,
+    cliRetryCount: runtimeConfig.cliRetryCount,
+    breakerFailureThreshold: runtimeConfig.breakerFailureThreshold,
+    breakerCooldownMs: runtimeConfig.breakerCooldownMs
   };
 
   res.json({ ok: true, reloaded: true, before, after, clearedCaches: ['sessions', 'agents'] });
 });
 
-// Tasks are modeled as OpenClaw sessions (active conversation work units).
 app.get('/api/tasks', auth, async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 1000);
   const offset = Math.max(Number(req.query.offset || 0), 0);
@@ -315,13 +656,10 @@ app.get('/api/tasks', auth, async (req, res) => {
   const statusFilter = String(req.query.status || '').trim().toLowerCase();
 
   try {
-    const [sessionsResult, agentsResult] = await Promise.all([
-      getSessionsData(),
-      getCachedJson('agents', () => runOpenClawJson(['agents', 'list']))
-    ]);
+    const [sessionsResult, agentsResult] = await Promise.all([getSessionsData(), getAgentsData()]);
 
     const sessions = sessionsResult.sessions;
-    const agents = Array.isArray(agentsResult.data) ? agentsResult.data : [];
+    const agents = agentsResult.agents;
     const agentNameMap = new Map(agents.map((a) => [a.id, a.identityName || a.name || a.id]));
 
     const mapped = sessions
@@ -362,7 +700,9 @@ app.get('/api/tasks', auth, async (req, res) => {
       diagnostics: {
         cache: {
           sessions: sessionsResult.cache,
+          sessionsAgeMs: sessionsResult.ageMs,
           agents: agentsResult.cache,
+          agentsAgeMs: agentsResult.ageMs,
           ttlMs: runtimeConfig.cacheTtlMs,
           hits: metrics.cacheHits,
           misses: metrics.cacheMisses
@@ -370,7 +710,8 @@ app.get('/api/tasks', auth, async (req, res) => {
       }
     });
   } catch (e) {
-    return sendError(res, 500, 'Failed to read tasks', e.message, e.code || 'TASKS_LIST_FAILED');
+    const stable = createStableError(e, 'TASKS_LIST_FAILED');
+    return sendError(res, 500, 'Failed to read tasks', stable.message, stable.code, { diagnostics: stable });
   }
 });
 
@@ -415,7 +756,8 @@ app.get('/api/tasks/:id/history', auth, async (req, res) => {
 
     res.json({ items: parsed.slice(-limit), sessionId, found: true });
   } catch (e) {
-    return sendError(res, 500, 'Failed to load history', e.message, e.code || 'HISTORY_LOAD_FAILED');
+    const stable = createStableError(e, 'HISTORY_LOAD_FAILED');
+    return sendError(res, 500, 'Failed to load history', stable.message, stable.code, { diagnostics: stable });
   }
 });
 
@@ -439,16 +781,19 @@ app.post('/api/tasks/:id/ping', auth, async (req, res) => {
       }
     }
 
-    const candidateAgents = [requestedAgentId, discoveredAgentId, ''].filter((v, i, arr) => v || i === arr.length - 1).filter((v, i, arr) => arr.indexOf(v) === i);
+    const candidateAgents = [requestedAgentId, discoveredAgentId, '']
+      .filter((v, i, arr) => v || i === arr.length - 1)
+      .filter((v, i, arr) => arr.indexOf(v) === i);
+
     let lastErr = null;
 
-    for (let i = 0; i < candidateAgents.length; i++) {
+    for (let i = 0; i < candidateAgents.length; i += 1) {
       const agentId = candidateAgents[i];
       const args = ['agent', '--session-id', sessionId, '--message', text, '--timeout', '45'];
       if (agentId) args.push('--agent', agentId);
 
       try {
-        const result = await runOpenClawJson(args, Math.max(runtimeConfig.cliTimeoutMs, 50000));
+        const result = await runOpenClawJson(args, Math.max(runtimeConfig.cliTimeoutMs, 50000), { retries: 1 });
         return res.json({ ok: true, sessionId, sent: true, textLength: text.length, agentId: agentId || null, attempts: i + 1, result });
       } catch (e) {
         lastErr = e;
@@ -456,9 +801,11 @@ app.post('/api/tasks/:id/ping', auth, async (req, res) => {
       }
     }
 
-    return sendError(res, 502, 'Failed to ping session', lastErr?.message || 'Unknown ping error', lastErr?.code || 'PING_FAILED');
+    const stable = createStableError(lastErr || new Error('Unknown ping error'), 'PING_FAILED');
+    return sendError(res, 502, 'Failed to ping session', stable.message, stable.code, { diagnostics: stable });
   } catch (e) {
-    return sendError(res, 502, 'Failed to ping session', e.message, e.code || 'PING_FAILED');
+    const stable = createStableError(e, 'PING_FAILED');
+    return sendError(res, 502, 'Failed to ping session', stable.message, stable.code, { diagnostics: stable });
   }
 });
 
@@ -470,26 +817,108 @@ app.get('/api/config', auth, (_req, res) => {
     openclawBin: runtimeConfig.openclawBin,
     requestTimeoutMs: runtimeConfig.requestTimeoutMs,
     cliTimeoutMs: runtimeConfig.cliTimeoutMs,
-    cacheTtlMs: runtimeConfig.cacheTtlMs
+    cacheTtlMs: runtimeConfig.cacheTtlMs,
+    cliRetryCount: runtimeConfig.cliRetryCount,
+    cliRetryBaseDelayMs: runtimeConfig.cliRetryBaseDelayMs,
+    cliRetryMaxDelayMs: runtimeConfig.cliRetryMaxDelayMs,
+    breakerFailureThreshold: runtimeConfig.breakerFailureThreshold,
+    breakerCooldownMs: runtimeConfig.breakerCooldownMs
   });
 });
 
 app.get('/api/agents', auth, async (_req, res) => {
   try {
-    const agents = await runOpenClawJson(['agents', 'list']);
-    const items = Array.isArray(agents)
-      ? agents.map((a) => ({
-          id: a.id,
-          name: a.identityName || a.name || a.id,
-          emoji: a.identityEmoji || null,
-          model: a.model || null,
-          workspace: a.workspace || null,
-          isDefault: Boolean(a.isDefault)
-        }))
-      : [];
+    const agentsResult = await getAgentsData();
+    const items = agentsResult.agents.map((a) => ({
+      id: a.id,
+      name: a.identityName || a.name || a.id,
+      emoji: a.identityEmoji || null,
+      model: a.model || null,
+      workspace: a.workspace || null,
+      isDefault: Boolean(a.isDefault)
+    }));
     res.json({ items });
   } catch (e) {
-    return sendError(res, 500, 'Failed to read agents', e.message, e.code || 'AGENTS_LIST_FAILED');
+    const stable = createStableError(e, 'AGENTS_LIST_FAILED');
+    return sendError(res, 500, 'Failed to read agents', stable.message, stable.code, { diagnostics: stable });
+  }
+});
+
+app.get('/api/dashboard/summary', auth, async (_req, res) => {
+  try {
+    const [sessionsResult, agentsResult] = await Promise.all([getSessionsData(), getAgentsData()]);
+    const agentNameMap = new Map(agentsResult.agents.map((a) => [a.id, a.identityName || a.name || a.id]));
+
+    const summary = summarizeSessions(sessionsResult.sessions, agentNameMap);
+    res.json({
+      ...summary,
+      diagnostics: {
+        cacheAgeMs: {
+          sessions: sessionsResult.ageMs,
+          agents: agentsResult.ageMs
+        },
+        openclawReachable: health.openclawReachable,
+        lastSuccessAt: health.lastSuccessAt,
+        consecutiveFailures: health.consecutiveFailures
+      }
+    });
+  } catch (e) {
+    const stable = createStableError(e, 'DASHBOARD_SUMMARY_FAILED');
+    return sendError(res, 500, 'Failed to build dashboard summary', stable.message, stable.code, { diagnostics: stable });
+  }
+});
+
+app.get('/api/dashboard/sessions', auth, async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 500);
+  const offset = Math.max(Number(req.query.offset || 0), 0);
+
+  try {
+    const [sessionsResult, agentsResult] = await Promise.all([getSessionsData(), getAgentsData()]);
+    const agentNameMap = new Map(agentsResult.agents.map((a) => [a.id, a.identityName || a.name || a.id]));
+
+    const mapped = sessionsResult.sessions
+      .map((s) => {
+        const updatedMs = Number(s.updatedAt || Date.now() - (s.ageMs || 0));
+        const agentId = s.agentId || 'unknown';
+
+        return {
+          id: s.sessionId || s.key,
+          key: s.key,
+          agentId,
+          agentName: agentNameMap.get(agentId) || agentId,
+          kind: s.kind || 'unknown',
+          model: s.model || null,
+          statusLabel: mapSessionStatus(s),
+          lastSeenAt: Number.isFinite(updatedMs) ? new Date(updatedMs).toISOString() : null,
+          lastSeenRelative: toRelativeTime(updatedMs),
+          ageMs: s.ageMs ?? null,
+          totalTokens: s.totalTokens ?? null,
+          contextTokens: s.contextTokens ?? null,
+          riskFlags: getRiskFlags(s)
+        };
+      })
+      .sort((a, b) => {
+        const aTime = Date.parse(a.lastSeenAt || 0) || 0;
+        const bTime = Date.parse(b.lastSeenAt || 0) || 0;
+        return bTime - aTime;
+      });
+
+    const items = mapped.slice(offset, offset + limit);
+    res.json({
+      items,
+      total: mapped.length,
+      limit,
+      offset,
+      diagnostics: {
+        cacheAgeMs: {
+          sessions: sessionsResult.ageMs,
+          agents: agentsResult.ageMs
+        }
+      }
+    });
+  } catch (e) {
+    const stable = createStableError(e, 'DASHBOARD_SESSIONS_FAILED');
+    return sendError(res, 500, 'Failed to build dashboard sessions', stable.message, stable.code, { diagnostics: stable });
   }
 });
 
@@ -500,7 +929,32 @@ app.get('/api/metrics', auth, (_req, res) => {
     avgLatencyMs: metrics.avgLatencyMs,
     cacheHits: metrics.cacheHits,
     cacheMisses: metrics.cacheMisses,
-    uptimeSec: Math.floor(process.uptime())
+    uptimeSec: Math.floor(process.uptime()),
+    openclawReachable: health.openclawReachable,
+    lastSuccessAt: health.lastSuccessAt,
+    consecutiveFailures: health.consecutiveFailures,
+    latencyP95Ms: calcP95(health.latencySamplesMs),
+    cacheAgeMs: {
+      sessions: ageFromFetchedAt(cache.sessions.fetchedAt),
+      agents: ageFromFetchedAt(cache.agents.fetchedAt)
+    },
+    circuitBreakers: {
+      sessions: {
+        state: breakers.sessions.state,
+        failures: breakers.sessions.failures,
+        cooldownUntil: breakers.sessions.cooldownUntil ? new Date(breakers.sessions.cooldownUntil).toISOString() : null
+      },
+      agents: {
+        state: breakers.agents.state,
+        failures: breakers.agents.failures,
+        cooldownUntil: breakers.agents.cooldownUntil ? new Date(breakers.agents.cooldownUntil).toISOString() : null
+      }
+    },
+    cli: {
+      calls: metrics.cliCalls,
+      retries: metrics.cliRetries,
+      failures: metrics.cliFailures
+    }
   });
 });
 

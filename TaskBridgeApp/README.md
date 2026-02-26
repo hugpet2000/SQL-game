@@ -37,6 +37,16 @@ Sprint 5 updates (observability + safety):
 - New endpoint: `GET /api/metrics` with request/error/latency/cache counters
 - `/api/tasks` now uses in-memory lookup cache (default TTL `2000ms`) for sessions + agents with hit/miss diagnostics
 
+Sprint 6-9 updates (connection reliability + dashboard model):
+- OpenClaw CLI wrapper now has retry/backoff for transient failures (`CLI_RETRY_*` envs)
+- In-flight dedupe added for expensive session/agent fetches to prevent thundering herd
+- Stable error diagnostics included in API errors (`diagnostics.retriable`, `attempts`, etc.)
+- Circuit breaker cooldown for expensive calls after repeated failures (`BREAKER_*` envs)
+- New lightweight `GET /api/healthz` for frequent frontend polling
+- `GET /api/selfcheck` and `GET /api/metrics` now expose: `openclawReachable`, `lastSuccessAt`, `consecutiveFailures`, latency p95 estimate, cache age
+- New `GET /api/dashboard/summary` with plain-language aggregates for dashboard cards
+- New `GET /api/dashboard/sessions` with normalized fields (`statusLabel`, `lastSeenRelative`, `riskFlags`)
+
 ## Structure
 - `bridge/` REST bridge service
 - `desktop/` Electron + React desktop app
@@ -68,6 +78,11 @@ Bridge supports:
 - `REQUEST_TIMEOUT_MS` (default `20000`)
 - `MAX_PING_TEXT` (default `1200`)
 - `CACHE_TTL_MS` (default `2000`) used by `/api/tasks` lookup cache
+- `CLI_RETRY_COUNT` (default `2`) retries for transient OpenClaw CLI failures
+- `CLI_RETRY_BASE_DELAY_MS` (default `250`) exponential backoff base
+- `CLI_RETRY_MAX_DELAY_MS` (default `2000`) max backoff delay
+- `BREAKER_FAILURE_THRESHOLD` (default `3`) failures before opening circuit for expensive calls
+- `BREAKER_COOLDOWN_MS` (default `8000`) cooldown before auto-recovery attempts
 
 ## API examples
 
@@ -100,9 +115,16 @@ curl -s -X POST http://127.0.0.1:8787/api/reload-config \
   -H 'Content-Type: application/json' | jq
 ```
 
-### Metrics
+### Metrics + healthz
 ```bash
 curl -s http://127.0.0.1:8787/api/metrics | jq
+curl -s http://127.0.0.1:8787/api/healthz | jq
+```
+
+### Dashboard-friendly endpoints
+```bash
+curl -s http://127.0.0.1:8787/api/dashboard/summary | jq
+curl -s 'http://127.0.0.1:8787/api/dashboard/sessions?limit=20' | jq
 ```
 
 ### Error envelope shape
@@ -111,7 +133,12 @@ All non-2xx API errors return:
 {
   "error": "Human readable summary",
   "details": "Technical detail",
-  "code": "MACHINE_CODE"
+  "code": "MACHINE_CODE",
+  "diagnostics": {
+    "retriable": true,
+    "attempts": 2,
+    "timeoutMs": 15000
+  }
 }
 ```
 
@@ -134,4 +161,19 @@ npm run dev
 
 # verify expected version/commit is now live
 curl -s http://127.0.0.1:8787/api/version | jq
+```
+
+## Troubleshooting: OpenClaw flaky/unreachable
+Use lightweight and full diagnostics:
+
+```bash
+curl -s http://127.0.0.1:8787/api/healthz | jq
+curl -s http://127.0.0.1:8787/api/selfcheck | jq
+curl -s http://127.0.0.1:8787/api/metrics | jq
+```
+
+If `circuitBreakers.*.state` is `open`, the bridge is in cooldown due to repeated upstream failures. Wait `BREAKER_COOLDOWN_MS` or lower threshold strictness / raise timeout and reload config:
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/api/reload-config | jq
 ```
