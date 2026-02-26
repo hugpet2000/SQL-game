@@ -44,7 +44,8 @@ const runtimeConfig = {
   cliRetryBaseDelayMs: 250,
   cliRetryMaxDelayMs: 2000,
   breakerFailureThreshold: 3,
-  breakerCooldownMs: 8000
+  breakerCooldownMs: 8000,
+  healthGraceMs: 15000
 };
 
 const cache = {
@@ -100,6 +101,7 @@ function loadRuntimeConfig() {
   runtimeConfig.cliRetryMaxDelayMs = Number(process.env.CLI_RETRY_MAX_DELAY_MS || 2000);
   runtimeConfig.breakerFailureThreshold = Number(process.env.BREAKER_FAILURE_THRESHOLD || 3);
   runtimeConfig.breakerCooldownMs = Number(process.env.BREAKER_COOLDOWN_MS || 8000);
+  runtimeConfig.healthGraceMs = Number(process.env.HEALTH_GRACE_MS || 15000);
 }
 
 function sendError(res, status, error, details, code, extra = {}) {
@@ -182,6 +184,33 @@ function markOpenclawFailure() {
   health.openclawReachable = false;
   health.lastFailureAt = nowIso();
   health.consecutiveFailures += 1;
+}
+
+function msSinceIso(iso) {
+  if (!iso) return null;
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return null;
+  return Math.max(0, Date.now() - ts);
+}
+
+function computeHealthState() {
+  const sinceSuccessMs = msSinceIso(health.lastSuccessAt);
+  const graceActive = Number.isFinite(sinceSuccessMs) && sinceSuccessMs <= runtimeConfig.healthGraceMs;
+  const breakerOpen = Object.values(breakers).some((b) => b.state === 'open');
+
+  const stableReachable = health.openclawReachable || graceActive;
+  const hardDown = health.consecutiveFailures >= Math.max(2, runtimeConfig.breakerFailureThreshold);
+  const ok = stableReachable && !hardDown;
+  const state = ok ? (health.openclawReachable ? 'connected' : 'degraded') : 'down';
+
+  return {
+    ok,
+    state,
+    breakerOpen,
+    stableReachable,
+    graceActive,
+    sinceLastSuccessMs: sinceSuccessMs
+  };
 }
 
 function isTransientCliError(err) {
@@ -697,18 +726,23 @@ app.get('/health', async (_req, res) => {
 
 app.get('/api/healthz', (_req, res) => {
   const p95LatencyMs = calcP95(health.latencySamplesMs);
-  const anyOpen = Object.values(breakers).some((b) => b.state === 'open');
-  const ok = health.openclawReachable || health.lastSuccessAt !== null;
+  const computed = computeHealthState();
 
-  res.status(ok ? 200 : 503).json({
-    ok,
+  res.status(computed.ok ? 200 : 503).json({
+    ok: computed.ok,
+    state: computed.state,
     service: 'task-bridge',
     now: nowIso(),
     openclawReachable: health.openclawReachable,
+    stableReachable: computed.stableReachable,
+    graceActive: computed.graceActive,
+    healthGraceMs: runtimeConfig.healthGraceMs,
+    sinceLastSuccessMs: computed.sinceLastSuccessMs,
     lastSuccessAt: health.lastSuccessAt,
+    lastFailureAt: health.lastFailureAt,
     consecutiveFailures: health.consecutiveFailures,
     latencyP95Ms: p95LatencyMs,
-    breakerOpen: anyOpen
+    breakerOpen: computed.breakerOpen
   });
 });
 
@@ -768,7 +802,8 @@ app.post('/api/reload-config', auth, (req, res) => {
     openclawBin: runtimeConfig.openclawBin,
     cliRetryCount: runtimeConfig.cliRetryCount,
     breakerFailureThreshold: runtimeConfig.breakerFailureThreshold,
-    breakerCooldownMs: runtimeConfig.breakerCooldownMs
+    breakerCooldownMs: runtimeConfig.breakerCooldownMs,
+    healthGraceMs: runtimeConfig.healthGraceMs
   };
 
   loadRuntimeConfig();
@@ -783,7 +818,8 @@ app.post('/api/reload-config', auth, (req, res) => {
     openclawBin: runtimeConfig.openclawBin,
     cliRetryCount: runtimeConfig.cliRetryCount,
     breakerFailureThreshold: runtimeConfig.breakerFailureThreshold,
-    breakerCooldownMs: runtimeConfig.breakerCooldownMs
+    breakerCooldownMs: runtimeConfig.breakerCooldownMs,
+    healthGraceMs: runtimeConfig.healthGraceMs
   };
 
   res.json({ ok: true, reloaded: true, before, after, clearedCaches: ['sessions', 'agents'] });
@@ -902,6 +938,17 @@ app.get('/api/tasks/:id/history', auth, async (req, res) => {
   }
 });
 
+async function discoverAgentIdForSession(sessionId) {
+  const sessionsResult = await getSessionsData();
+  let match = sessionsResult.sessions.find((s) => s.sessionId === sessionId || s.key === sessionId);
+  if (match?.agentId) return { agentId: String(match.agentId).trim(), source: 'cache' };
+
+  clearLookupCaches();
+  const refreshed = await getSessionsData();
+  match = refreshed.sessions.find((s) => s.sessionId === sessionId || s.key === sessionId);
+  return { agentId: String(match?.agentId || '').trim(), source: 'refreshed' };
+}
+
 app.post('/api/tasks/:id/ping', auth, async (req, res) => {
   const sessionId = String(req.params.id || '').trim();
   const text = sanitizePingText(req.body?.text);
@@ -912,11 +959,12 @@ app.post('/api/tasks/:id/ping', auth, async (req, res) => {
 
   try {
     let discoveredAgentId = '';
+    let discoveredAgentSource = null;
     if (!requestedAgentId) {
       try {
-        const sessionsResult = await getSessionsData();
-        const match = sessionsResult.sessions.find((s) => s.sessionId === sessionId || s.key === sessionId);
-        discoveredAgentId = String(match?.agentId || '').trim();
+        const discovered = await discoverAgentIdForSession(sessionId);
+        discoveredAgentId = discovered.agentId;
+        discoveredAgentSource = discovered.source;
       } catch {
         // best effort only
       }
@@ -935,7 +983,7 @@ app.post('/api/tasks/:id/ping', auth, async (req, res) => {
 
       try {
         const result = await runOpenClawJson(args, Math.max(runtimeConfig.cliTimeoutMs, 50000), { retries: 1 });
-        return res.json({ ok: true, sessionId, sent: true, textLength: text.length, agentId: agentId || null, attempts: i + 1, result });
+        return res.json({ ok: true, sessionId, sent: true, textLength: text.length, agentId: agentId || null, attempts: i + 1, triedAgentIds: candidateAgents.map((a) => a || null), discoveredAgentSource, result });
       } catch (e) {
         lastErr = e;
         if (i < candidateAgents.length - 1) await sleep(250);
@@ -963,7 +1011,8 @@ app.get('/api/config', auth, (_req, res) => {
     cliRetryBaseDelayMs: runtimeConfig.cliRetryBaseDelayMs,
     cliRetryMaxDelayMs: runtimeConfig.cliRetryMaxDelayMs,
     breakerFailureThreshold: runtimeConfig.breakerFailureThreshold,
-    breakerCooldownMs: runtimeConfig.breakerCooldownMs
+    breakerCooldownMs: runtimeConfig.breakerCooldownMs,
+    healthGraceMs: runtimeConfig.healthGraceMs
   });
 });
 

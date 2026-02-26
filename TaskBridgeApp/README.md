@@ -42,7 +42,7 @@ Sprint 6-9 updates (connection reliability + dashboard model):
 - In-flight dedupe added for expensive session/agent fetches to prevent thundering herd
 - Stable error diagnostics included in API errors (`diagnostics.retriable`, `attempts`, etc.)
 - Circuit breaker cooldown for expensive calls after repeated failures (`BREAKER_*` envs)
-- New lightweight `GET /api/healthz` for frequent frontend polling
+- New lightweight `GET /api/healthz` for frequent frontend polling (now grace-smoothed to avoid one-off transient blips)
 - `GET /api/selfcheck` and `GET /api/metrics` now expose: `openclawReachable`, `lastSuccessAt`, `consecutiveFailures`, latency p95 estimate, cache age
 - New `GET /api/dashboard/summary` with plain-language aggregates for dashboard cards
 - New `GET /api/dashboard/sessions` with normalized fields (`statusLabel`, `lastSeenRelative`, `riskFlags`)
@@ -94,6 +94,7 @@ Bridge supports:
 - `CLI_RETRY_MAX_DELAY_MS` (default `2000`) max backoff delay
 - `BREAKER_FAILURE_THRESHOLD` (default `3`) failures before opening circuit for expensive calls
 - `BREAKER_COOLDOWN_MS` (default `8000`) cooldown before auto-recovery attempts
+- `HEALTH_GRACE_MS` (default `15000`) keeps `/api/healthz` stable during short transient OpenClaw failures
 
 ## API examples
 
@@ -140,6 +141,24 @@ curl -s 'http://127.0.0.1:8787/api/dashboard/activity?limit=20' | jq
 curl -s http://127.0.0.1:8787/api/dashboard/agents | jq
 curl -s http://127.0.0.1:8787/api/dashboard/health | jq
 curl -s http://127.0.0.1:8787/api/agents/<agent-id> | jq
+```
+
+### Smoke check: stable health polling + repeated ping attempts
+```bash
+# 1) baseline healthz (should include state + stableReachable)
+curl -s http://127.0.0.1:8787/api/healthz | jq
+
+# 2) quick poll loop (look for no one-sample down blips on transient hiccups)
+for i in {1..8}; do curl -s http://127.0.0.1:8787/api/healthz | jq '{ok,state,openclawReachable,stableReachable,consecutiveFailures,lastSuccessAt}'; sleep 1; done
+
+# 3) repeated ping attempts to same session
+SID="<session-id>"
+for i in {1..5}; do
+  curl -s -X POST "http://127.0.0.1:8787/api/tasks/${SID}/ping" \
+    -H 'Content-Type: application/json' \
+    -d '{"text":"TaskBridge smoke ping"}' | jq '{ok,sent,agentId,attempts,triedAgentIds,code,error}'
+  sleep 1
+done
 ```
 
 ## API contract (Home / Agents / Settings)
