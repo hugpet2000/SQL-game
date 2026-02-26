@@ -1,0 +1,34 @@
+# TaskBridgeApp (Sprint 0 Scaffold)
+
+Defaults applied:
+- **Bridge:** Node.js + Express REST API
+- **Desktop UI:** Electron + React (Vite)
+- **Transport:** REST polling (2s)
+- **Security:** localhost bind, optional bearer token toggle
+- **Pagination:** `limit` + `offset` (default limit=100)
+
+## Structure
+- `bridge/` REST bridge service
+- `desktop/` Electron + React desktop app
+
+## Quick start
+### 1) Bridge
+```bash
+cd bridge
+npm install
+npm run dev
+```
+Bridge runs on `http://127.0.0.1:8787`.
+
+### 2) Desktop
+```bash
+cd desktop
+npm install
+npm run dev
+```
+
+## Env
+Bridge supports:
+- `PORT` (default `8787`)
+- `HOST` (default `127.0.0.1`)
+- `AUTH_TOKEN` (optional; when set, requires `Authorization: Bearer <token>`)
