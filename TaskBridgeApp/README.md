@@ -119,8 +119,8 @@ All non-2xx API errors return:
 If UI/API shows old behavior after updates, you may still have an old bridge process bound to `127.0.0.1:8787`.
 
 ```bash
-# show process listening on 8787
-ss -ltnp | rg ':8787'
+# show process listening on 8787 (portable)
+ss -ltnp | grep ':8787'
 
 # kill whichever PID owns port 8787
 kill -TERM <PID>

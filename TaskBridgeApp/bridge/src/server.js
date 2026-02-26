@@ -185,6 +185,16 @@ function clearLookupCaches() {
   cache.agents = { value: null, expiresAt: 0 };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getSessionsData() {
+  const result = await getCachedJson('sessions', () => runOpenClawJson(['sessions', '--all-agents']));
+  const sessions = Array.isArray(result.data?.sessions) ? result.data.sessions : [];
+  return { sessions, cache: result.cache };
+}
+
 async function detectGitVersion() {
   try {
     const [{ stdout: commit }, { stdout: branch }] = await Promise.all([
@@ -306,11 +316,11 @@ app.get('/api/tasks', auth, async (req, res) => {
 
   try {
     const [sessionsResult, agentsResult] = await Promise.all([
-      getCachedJson('sessions', () => runOpenClawJson(['sessions', '--all-agents'])),
+      getSessionsData(),
       getCachedJson('agents', () => runOpenClawJson(['agents', 'list']))
     ]);
 
-    const sessions = Array.isArray(sessionsResult.data.sessions) ? sessionsResult.data.sessions : [];
+    const sessions = sessionsResult.sessions;
     const agents = Array.isArray(agentsResult.data) ? agentsResult.data : [];
     const agentNameMap = new Map(agents.map((a) => [a.id, a.identityName || a.name || a.id]));
 
@@ -412,17 +422,41 @@ app.get('/api/tasks/:id/history', auth, async (req, res) => {
 app.post('/api/tasks/:id/ping', auth, async (req, res) => {
   const sessionId = String(req.params.id || '').trim();
   const text = sanitizePingText(req.body?.text);
-  const agentId = String(req.body?.agentId || '').trim();
+  const requestedAgentId = String(req.body?.agentId || '').trim();
 
   if (!sessionId) return sendError(res, 400, 'Missing session id', 'Parameter :id is required', 'MISSING_SESSION_ID');
   if (!text) return sendError(res, 400, 'Invalid text', 'Body { text } is required', 'INVALID_TEXT');
 
   try {
-    const args = ['agent', '--session-id', sessionId, '--message', text];
-    if (agentId) args.push('--agent', agentId);
+    let discoveredAgentId = '';
+    if (!requestedAgentId) {
+      try {
+        const sessionsResult = await getSessionsData();
+        const match = sessionsResult.sessions.find((s) => s.sessionId === sessionId || s.key === sessionId);
+        discoveredAgentId = String(match?.agentId || '').trim();
+      } catch {
+        // best effort only
+      }
+    }
 
-    const result = await runOpenClawJson(args);
-    res.json({ ok: true, sessionId, sent: true, textLength: text.length, result });
+    const candidateAgents = [requestedAgentId, discoveredAgentId, ''].filter((v, i, arr) => v || i === arr.length - 1).filter((v, i, arr) => arr.indexOf(v) === i);
+    let lastErr = null;
+
+    for (let i = 0; i < candidateAgents.length; i++) {
+      const agentId = candidateAgents[i];
+      const args = ['agent', '--session-id', sessionId, '--message', text, '--timeout', '45'];
+      if (agentId) args.push('--agent', agentId);
+
+      try {
+        const result = await runOpenClawJson(args, Math.max(runtimeConfig.cliTimeoutMs, 50000));
+        return res.json({ ok: true, sessionId, sent: true, textLength: text.length, agentId: agentId || null, attempts: i + 1, result });
+      } catch (e) {
+        lastErr = e;
+        if (i < candidateAgents.length - 1) await sleep(250);
+      }
+    }
+
+    return sendError(res, 502, 'Failed to ping session', lastErr?.message || 'Unknown ping error', lastErr?.code || 'PING_FAILED');
   } catch (e) {
     return sendError(res, 502, 'Failed to ping session', e.message, e.code || 'PING_FAILED');
   }
