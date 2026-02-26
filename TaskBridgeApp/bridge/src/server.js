@@ -455,6 +455,133 @@ function getRiskFlags(s) {
   return flags;
 }
 
+function getSessionStatusCode(s) {
+  if (s.abortedLastRun) return 'failed';
+  const ageMs = Number(s.ageMs || 0);
+  if (ageMs <= 5 * 60 * 1000) return 'running';
+  if (ageMs <= 30 * 60 * 1000) return 'active';
+  if (ageMs <= 6 * 60 * 60 * 1000) return 'queued';
+  return 'inactive';
+}
+
+function getSessionStatusLabelFromCode(code) {
+  const labels = {
+    running: 'Running',
+    active: 'Active',
+    queued: 'Queued',
+    failed: 'Failed',
+    inactive: 'Inactive'
+  };
+  return labels[code] || 'Unknown';
+}
+
+function deriveCurrentTask(s) {
+  return {
+    sessionId: s.sessionId || s.key || null,
+    kind: s.kind || 'unknown',
+    model: s.model || null,
+    updatedAt: s.updatedAt ? new Date(s.updatedAt).toISOString() : null,
+    lastSeenRelative: toRelativeTime(Number(s.updatedAt || Date.now() - (s.ageMs || 0))),
+    totalTokens: s.totalTokens ?? null,
+    contextTokens: s.contextTokens ?? null
+  };
+}
+
+function buildSystemHealthPayload() {
+  const p95LatencyMs = calcP95(health.latencySamplesMs);
+  const breakersState = {
+    sessions: {
+      state: breakers.sessions.state,
+      failures: breakers.sessions.failures,
+      cooldownUntil: breakers.sessions.cooldownUntil ? new Date(breakers.sessions.cooldownUntil).toISOString() : null
+    },
+    agents: {
+      state: breakers.agents.state,
+      failures: breakers.agents.failures,
+      cooldownUntil: breakers.agents.cooldownUntil ? new Date(breakers.agents.cooldownUntil).toISOString() : null
+    }
+  };
+
+  const allClosed = Object.values(breakersState).every((b) => b.state === 'closed');
+
+  return {
+    connection: {
+      openclawReachable: health.openclawReachable,
+      status: health.openclawReachable ? 'connected' : 'degraded',
+      lastSuccessAt: health.lastSuccessAt,
+      lastFailureAt: health.lastFailureAt,
+      consecutiveFailures: health.consecutiveFailures,
+      latencyP95Ms: p95LatencyMs
+    },
+    system: {
+      uptimeSec: Math.floor(process.uptime()),
+      requests: metrics.requests,
+      errors: metrics.errors,
+      avgLatencyMs: metrics.avgLatencyMs,
+      cacheHits: metrics.cacheHits,
+      cacheMisses: metrics.cacheMisses,
+      circuitBreakers: breakersState,
+      healthy: (health.openclawReachable || health.lastSuccessAt !== null) && allClosed
+    }
+  };
+}
+
+function buildActivityFeed(sessions, agentNameMap, limit = 25) {
+  return sessions
+    .map((s) => {
+      const statusCode = getSessionStatusCode(s);
+      const updatedMs = Number(s.updatedAt || Date.now() - (s.ageMs || 0));
+      const agentId = s.agentId || 'unknown';
+      const actionText = s.abortedLastRun
+        ? `Session ${s.sessionId || s.key || 'unknown'} aborted on ${s.model || 'unknown model'}`
+        : `Session ${s.sessionId || s.key || 'unknown'} updated (${s.kind || 'unknown'})`;
+
+      return {
+        timestamp: Number.isFinite(updatedMs) ? new Date(updatedMs).toISOString() : null,
+        agentName: agentNameMap.get(agentId) || agentId,
+        actionText,
+        status: statusCode
+      };
+    })
+    .sort((a, b) => (Date.parse(b.timestamp || 0) || 0) - (Date.parse(a.timestamp || 0) || 0))
+    .slice(0, limit);
+}
+
+function buildAgentsSnapshot(agents, sessions) {
+  const byAgent = new Map();
+
+  for (const s of sessions) {
+    const agentId = s.agentId || 'unknown';
+    const list = byAgent.get(agentId) || [];
+    list.push(s);
+    byAgent.set(agentId, list);
+  }
+
+  return agents.map((a) => {
+    const agentSessions = (byAgent.get(a.id) || []).sort((x, y) => Number(y.updatedAt || 0) - Number(x.updatedAt || 0));
+    const current = agentSessions[0] || null;
+    const statusCode = current ? getSessionStatusCode(current) : 'inactive';
+
+    return {
+      id: a.id,
+      name: a.identityName || a.name || a.id,
+      emoji: a.identityEmoji || null,
+      model: a.model || null,
+      workspace: a.workspace || null,
+      isDefault: Boolean(a.isDefault),
+      status: statusCode,
+      statusLabel: getSessionStatusLabelFromCode(statusCode),
+      currentTask: current ? deriveCurrentTask(current) : null,
+      heartbeat: {
+        lastSeenAt: current?.updatedAt ? new Date(current.updatedAt).toISOString() : null,
+        lastSeenRelative: current ? toRelativeTime(Number(current.updatedAt || Date.now() - (current.ageMs || 0))) : 'unknown',
+        stale: current ? Number(current.ageMs || 0) > 6 * 60 * 60 * 1000 : true
+      },
+      sessionsCount: agentSessions.length
+    };
+  });
+}
+
 function summarizeSessions(sessions, agentsMap) {
   const now = Date.now();
   const activeThresholdMs = 30 * 60 * 1000;
@@ -465,6 +592,9 @@ function summarizeSessions(sessions, agentsMap) {
   let abortedSessions = 0;
   let recent15m = 0;
   let recent60m = 0;
+  let runningCount = 0;
+  let queuedCount = 0;
+  let failedCount = 0;
 
   const byAgent = new Map();
 
@@ -476,6 +606,11 @@ function summarizeSessions(sessions, agentsMap) {
     if (s.abortedLastRun) abortedSessions += 1;
     if (ageMs <= 15 * 60 * 1000) recent15m += 1;
     if (ageMs <= 60 * 60 * 1000) recent60m += 1;
+
+    const statusCode = getSessionStatusCode(s);
+    if (statusCode === 'running') runningCount += 1;
+    if (statusCode === 'queued') queuedCount += 1;
+    if (statusCode === 'failed') failedCount += 1;
 
     const aId = s.agentId || 'unknown';
     const current = byAgent.get(aId) || { agentId: aId, agentName: agentsMap.get(aId) || aId, sessions: 0 };
@@ -493,6 +628,12 @@ function summarizeSessions(sessions, agentsMap) {
       activeSessions,
       staleSessions,
       abortedSessions
+    },
+    kpis: {
+      active: activeSessions,
+      running: runningCount,
+      queued: queuedCount,
+      failed: failedCount
     },
     recentActivity: {
       updatedLast15m: recent15m,
@@ -828,15 +969,23 @@ app.get('/api/config', auth, (_req, res) => {
 
 app.get('/api/agents', auth, async (_req, res) => {
   try {
-    const agentsResult = await getAgentsData();
-    const items = agentsResult.agents.map((a) => ({
-      id: a.id,
-      name: a.identityName || a.name || a.id,
-      emoji: a.identityEmoji || null,
-      model: a.model || null,
-      workspace: a.workspace || null,
-      isDefault: Boolean(a.isDefault)
-    }));
+    const [agentsResult, sessionsResult] = await Promise.all([getAgentsData(), getSessionsData()]);
+    const snapshotMap = new Map(buildAgentsSnapshot(agentsResult.agents, sessionsResult.sessions).map((i) => [i.id, i]));
+
+    const items = agentsResult.agents.map((a) => {
+      const snapshot = snapshotMap.get(a.id);
+      return {
+        id: a.id,
+        name: a.identityName || a.name || a.id,
+        emoji: a.identityEmoji || null,
+        model: a.model || null,
+        workspace: a.workspace || null,
+        isDefault: Boolean(a.isDefault),
+        status: snapshot?.status || 'inactive',
+        currentTask: snapshot?.currentTask || null,
+        heartbeat: snapshot?.heartbeat || { lastSeenAt: null, lastSeenRelative: 'unknown', stale: true }
+      };
+    });
     res.json({ items });
   } catch (e) {
     const stable = createStableError(e, 'AGENTS_LIST_FAILED');
@@ -850,8 +999,16 @@ app.get('/api/dashboard/summary', auth, async (_req, res) => {
     const agentNameMap = new Map(agentsResult.agents.map((a) => [a.id, a.identityName || a.name || a.id]));
 
     const summary = summarizeSessions(sessionsResult.sessions, agentNameMap);
+    const activityFeed = buildActivityFeed(sessionsResult.sessions, agentNameMap, 12);
+    const agentsSnapshot = buildAgentsSnapshot(agentsResult.agents, sessionsResult.sessions).slice(0, 8);
+    const healthPanel = buildSystemHealthPayload();
+
     res.json({
+      contractVersion: 'dashboard.v2',
       ...summary,
+      activityFeed,
+      agentsSnapshot,
+      healthPanel,
       diagnostics: {
         cacheAgeMs: {
           sessions: sessionsResult.ageMs,
@@ -881,6 +1038,7 @@ app.get('/api/dashboard/sessions', auth, async (req, res) => {
         const updatedMs = Number(s.updatedAt || Date.now() - (s.ageMs || 0));
         const agentId = s.agentId || 'unknown';
 
+        const status = getSessionStatusCode(s);
         return {
           id: s.sessionId || s.key,
           key: s.key,
@@ -888,7 +1046,14 @@ app.get('/api/dashboard/sessions', auth, async (req, res) => {
           agentName: agentNameMap.get(agentId) || agentId,
           kind: s.kind || 'unknown',
           model: s.model || null,
-          statusLabel: mapSessionStatus(s),
+          status,
+          statusLabel: getSessionStatusLabelFromCode(status) || mapSessionStatus(s),
+          currentTask: deriveCurrentTask(s),
+          heartbeat: {
+            lastSeenAt: Number.isFinite(updatedMs) ? new Date(updatedMs).toISOString() : null,
+            lastSeenRelative: toRelativeTime(updatedMs),
+            stale: Number(s.ageMs || 0) > 6 * 60 * 60 * 1000
+          },
           lastSeenAt: Number.isFinite(updatedMs) ? new Date(updatedMs).toISOString() : null,
           lastSeenRelative: toRelativeTime(updatedMs),
           ageMs: s.ageMs ?? null,
@@ -920,6 +1085,124 @@ app.get('/api/dashboard/sessions', auth, async (req, res) => {
     const stable = createStableError(e, 'DASHBOARD_SESSIONS_FAILED');
     return sendError(res, 500, 'Failed to build dashboard sessions', stable.message, stable.code, { diagnostics: stable });
   }
+});
+
+app.get('/api/dashboard/activity', auth, async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit || 25), 1), 200);
+
+  try {
+    const [sessionsResult, agentsResult] = await Promise.all([getSessionsData(), getAgentsData()]);
+    const agentNameMap = new Map(agentsResult.agents.map((a) => [a.id, a.identityName || a.name || a.id]));
+    const items = buildActivityFeed(sessionsResult.sessions, agentNameMap, limit);
+
+    return res.json({
+      contractVersion: 'dashboard.activity.v1',
+      items,
+      total: items.length,
+      limit,
+      diagnostics: {
+        cacheAgeMs: {
+          sessions: sessionsResult.ageMs,
+          agents: agentsResult.ageMs
+        }
+      }
+    });
+  } catch (e) {
+    const stable = createStableError(e, 'DASHBOARD_ACTIVITY_FAILED');
+    return sendError(res, 500, 'Failed to build dashboard activity', stable.message, stable.code, { diagnostics: stable });
+  }
+});
+
+app.get('/api/dashboard/agents', auth, async (_req, res) => {
+  try {
+    const [sessionsResult, agentsResult] = await Promise.all([getSessionsData(), getAgentsData()]);
+    const items = buildAgentsSnapshot(agentsResult.agents, sessionsResult.sessions);
+    return res.json({
+      contractVersion: 'dashboard.agents.v1',
+      items,
+      total: items.length
+    });
+  } catch (e) {
+    const stable = createStableError(e, 'DASHBOARD_AGENTS_FAILED');
+    return sendError(res, 500, 'Failed to build dashboard agents', stable.message, stable.code, { diagnostics: stable });
+  }
+});
+
+app.get('/api/agents/:id', auth, async (req, res) => {
+  const agentId = String(req.params.id || '').trim();
+  if (!agentId) return sendError(res, 400, 'Missing agent id', 'Parameter :id is required', 'MISSING_AGENT_ID');
+
+  try {
+    const [sessionsResult, agentsResult] = await Promise.all([getSessionsData(), getAgentsData()]);
+    const agent = agentsResult.agents.find((a) => a.id === agentId);
+    if (!agent) return sendError(res, 404, 'Agent not found', `No agent with id '${agentId}'`, 'AGENT_NOT_FOUND');
+
+    const agentSessions = sessionsResult.sessions
+      .filter((s) => (s.agentId || 'unknown') === agentId)
+      .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+
+    const current = agentSessions[0] || null;
+    const status = current ? getSessionStatusCode(current) : 'inactive';
+    const recentTasks = agentSessions.slice(0, 8).map((s) => ({
+      sessionId: s.sessionId || s.key || null,
+      key: s.key || null,
+      status: getSessionStatusCode(s),
+      kind: s.kind || 'unknown',
+      model: s.model || null,
+      updatedAt: s.updatedAt ? new Date(s.updatedAt).toISOString() : null,
+      lastSeenRelative: toRelativeTime(Number(s.updatedAt || Date.now() - (s.ageMs || 0))),
+      tokens: {
+        total: s.totalTokens ?? null,
+        context: s.contextTokens ?? null
+      }
+    }));
+
+    const recentLogs = recentTasks.map((task) => ({
+      timestamp: task.updatedAt,
+      level: task.status === 'failed' ? 'error' : 'info',
+      message: task.status === 'failed'
+        ? `Task ${task.sessionId || task.key || 'unknown'} ended with failure state`
+        : `Task ${task.sessionId || task.key || 'unknown'} updated (${task.kind})`
+    }));
+
+    return res.json({
+      contractVersion: 'agent.detail.v1',
+      id: agent.id,
+      name: agent.identityName || agent.name || agent.id,
+      emoji: agent.identityEmoji || null,
+      model: agent.model || null,
+      workspace: agent.workspace || null,
+      isDefault: Boolean(agent.isDefault),
+      status,
+      currentTask: current ? deriveCurrentTask(current) : null,
+      heartbeat: {
+        lastSeenAt: current?.updatedAt ? new Date(current.updatedAt).toISOString() : null,
+        lastSeenRelative: current ? toRelativeTime(Number(current.updatedAt || Date.now() - (current.ageMs || 0))) : 'unknown',
+        stale: current ? Number(current.ageMs || 0) > 6 * 60 * 60 * 1000 : true
+      },
+      recentTasks,
+      recentLogs,
+      sessionsCount: agentSessions.length
+    });
+  } catch (e) {
+    const stable = createStableError(e, 'AGENT_DETAIL_FAILED');
+    return sendError(res, 500, 'Failed to read agent details', stable.message, stable.code, { diagnostics: stable });
+  }
+});
+
+app.get('/api/dashboard/health', auth, (_req, res) => {
+  res.json({
+    contractVersion: 'dashboard.health.v1',
+    ...buildSystemHealthPayload(),
+    cacheAgeMs: {
+      sessions: ageFromFetchedAt(cache.sessions.fetchedAt),
+      agents: ageFromFetchedAt(cache.agents.fetchedAt)
+    },
+    version: {
+      commit: bridgeVersion.commit,
+      branch: bridgeVersion.branch
+    }
+  });
 });
 
 app.get('/api/metrics', auth, (_req, res) => {

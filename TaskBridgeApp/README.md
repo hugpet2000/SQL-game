@@ -47,6 +47,17 @@ Sprint 6-9 updates (connection reliability + dashboard model):
 - New `GET /api/dashboard/summary` with plain-language aggregates for dashboard cards
 - New `GET /api/dashboard/sessions` with normalized fields (`statusLabel`, `lastSeenRelative`, `riskFlags`)
 
+Sprint 10 updates (UI-overhaul contract shaping):
+- `GET /api/dashboard/summary` now includes stable Home view contract fields:
+  - KPI counts: `kpis.active`, `kpis.running`, `kpis.queued`, `kpis.failed`
+  - `activityFeed[]` items: `timestamp`, `agentName`, `actionText`, `status`
+  - `agentsSnapshot[]` cards for Home/Agents overviews
+  - `healthPanel.connection` + `healthPanel.system` for Settings/Home status widgets
+- New `GET /api/dashboard/activity` focused activity-feed endpoint
+- New `GET /api/dashboard/agents` focused agents snapshot endpoint
+- New `GET /api/agents/:id` details endpoint with `status`, `currentTask`, `heartbeat`, `recentTasks`, `recentLogs`
+- `GET /api/agents` remains backward-compatible and now adds optional `status/currentTask/heartbeat`
+
 ## Structure
 - `bridge/` REST bridge service
 - `desktop/` Electron + React desktop app
@@ -125,6 +136,69 @@ curl -s http://127.0.0.1:8787/api/healthz | jq
 ```bash
 curl -s http://127.0.0.1:8787/api/dashboard/summary | jq
 curl -s 'http://127.0.0.1:8787/api/dashboard/sessions?limit=20' | jq
+curl -s 'http://127.0.0.1:8787/api/dashboard/activity?limit=20' | jq
+curl -s http://127.0.0.1:8787/api/dashboard/agents | jq
+curl -s http://127.0.0.1:8787/api/dashboard/health | jq
+curl -s http://127.0.0.1:8787/api/agents/<agent-id> | jq
+```
+
+## API contract (Home / Agents / Settings)
+
+These fields are intended as a stable frontend contract for the UI overhaul.
+
+### Home view
+- `GET /api/dashboard/summary`
+  - `kpis.active|running|queued|failed`
+  - `activityFeed[]` with `timestamp`, `agentName`, `actionText`, `status`
+  - `agentsSnapshot[]` with `status`, `currentTask`, `heartbeat`
+  - `healthPanel.connection` and `healthPanel.system`
+
+Example:
+```json
+{
+  "contractVersion": "dashboard.v2",
+  "kpis": { "active": 3, "running": 1, "queued": 2, "failed": 0 },
+  "activityFeed": [
+    {
+      "timestamp": "2026-02-26T21:33:01.000Z",
+      "agentName": "main",
+      "actionText": "Session abc123 updated (agent)",
+      "status": "running"
+    }
+  ]
+}
+```
+
+### Agents view
+- `GET /api/dashboard/agents` for cards/snapshot list
+- `GET /api/agents/:id` for detail pane
+  - `status`, `currentTask`, `heartbeat`, `recentTasks`, `recentLogs`
+
+Example (`GET /api/agents/:id`):
+```json
+{
+  "contractVersion": "agent.detail.v1",
+  "id": "main",
+  "status": "active",
+  "currentTask": { "sessionId": "abc123", "kind": "agent" },
+  "heartbeat": { "lastSeenRelative": "2m ago", "stale": false },
+  "recentTasks": [{ "sessionId": "abc123", "status": "running" }],
+  "recentLogs": [{ "level": "info", "message": "Task abc123 updated (agent)" }]
+}
+```
+
+### Settings / health panel
+- `GET /api/dashboard/health`
+  - `connection.status`, `connection.openclawReachable`, `connection.lastSuccessAt`, `connection.latencyP95Ms`
+  - `system.healthy`, `system.uptimeSec`, `system.circuitBreakers`
+
+Example:
+```json
+{
+  "contractVersion": "dashboard.health.v1",
+  "connection": { "status": "connected", "openclawReachable": true },
+  "system": { "healthy": true, "uptimeSec": 486, "errors": 0 }
+}
 ```
 
 ### Error envelope shape
