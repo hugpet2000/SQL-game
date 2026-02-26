@@ -7,6 +7,11 @@ Defaults applied:
 - **Security:** localhost bind, optional bearer token toggle
 - **Pagination:** `limit` + `offset` (default limit=100)
 
+Sprint 1 wiring:
+- `/api/tasks` now maps to `openclaw sessions --all-agents --json`
+- `/api/agents` now maps to `openclaw agents list --json`
+- `/health` validates bridge + `openclaw status --json`
+
 ## Structure
 - `bridge/` REST bridge service
 - `desktop/` Electron + React desktop app
