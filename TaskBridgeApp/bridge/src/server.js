@@ -5,21 +5,61 @@ import { promisify } from 'node:util';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+
+const execFileAsync = promisify(execFile);
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '256kb' }));
 
-const execFileAsync = promisify(execFile);
+const STARTED_AT_MS = Date.now();
+const SERVER_PID = process.pid;
+const BRIDGE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const TASKBRIDGE_ROOT = path.resolve(BRIDGE_DIR, '..', '..');
 
-const HOST = process.env.HOST || '127.0.0.1';
-const PORT = Number(process.env.PORT || 8787);
-const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
-const OPENCLAW_BIN = process.env.OPENCLAW_BIN || '/home/hugog/.npm-global/bin/openclaw';
-const OPENCLAW_PATH_PREFIX = process.env.OPENCLAW_PATH_PREFIX || '/home/hugog/.npm-global/bin';
-const CLI_TIMEOUT_MS = Number(process.env.CLI_TIMEOUT_MS || 15000);
-const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 20000);
-const MAX_PING_TEXT = Number(process.env.MAX_PING_TEXT || 1200);
+const metrics = {
+  requests: 0,
+  errors: 0,
+  totalLatencyMs: 0,
+  avgLatencyMs: 0,
+  cacheHits: 0,
+  cacheMisses: 0
+};
+
+const runtimeConfig = {
+  host: '127.0.0.1',
+  port: 8787,
+  authToken: '',
+  openclawBin: '/home/hugog/.npm-global/bin/openclaw',
+  openclawPathPrefix: '/home/hugog/.npm-global/bin',
+  cliTimeoutMs: 15000,
+  requestTimeoutMs: 20000,
+  maxPingText: 1200,
+  cacheTtlMs: 2000
+};
+
+const cache = {
+  sessions: { value: null, expiresAt: 0 },
+  agents: { value: null, expiresAt: 0 }
+};
+
+let bridgeVersion = {
+  commit: 'unknown',
+  branch: 'unknown'
+};
+
+function loadRuntimeConfig() {
+  runtimeConfig.host = process.env.HOST || '127.0.0.1';
+  runtimeConfig.port = Number(process.env.PORT || 8787);
+  runtimeConfig.authToken = process.env.AUTH_TOKEN || '';
+  runtimeConfig.openclawBin = process.env.OPENCLAW_BIN || '/home/hugog/.npm-global/bin/openclaw';
+  runtimeConfig.openclawPathPrefix = process.env.OPENCLAW_PATH_PREFIX || '/home/hugog/.npm-global/bin';
+  runtimeConfig.cliTimeoutMs = Number(process.env.CLI_TIMEOUT_MS || 15000);
+  runtimeConfig.requestTimeoutMs = Number(process.env.REQUEST_TIMEOUT_MS || 20000);
+  runtimeConfig.maxPingText = Number(process.env.MAX_PING_TEXT || 1200);
+  runtimeConfig.cacheTtlMs = Number(process.env.CACHE_TTL_MS || 2000);
+}
 
 function sendError(res, status, error, details, code) {
   return res.status(status).json({ error, details, code });
@@ -38,26 +78,26 @@ function withTimeout(promise, ms, code = 'TIMEOUT') {
 }
 
 function auth(req, res, next) {
-  if (!AUTH_TOKEN) return next();
+  if (!runtimeConfig.authToken) return next();
   const header = req.headers.authorization || '';
-  if (header === `Bearer ${AUTH_TOKEN}`) return next();
+  if (header === `Bearer ${runtimeConfig.authToken}`) return next();
   return sendError(res, 401, 'Unauthorized', 'Missing or invalid bearer token', 'AUTH_REQUIRED');
 }
 
 function sanitizePingText(input) {
   const text = String(input ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ').trim();
   if (!text) return '';
-  return text.slice(0, MAX_PING_TEXT);
+  return text.slice(0, runtimeConfig.maxPingText);
 }
 
-async function runOpenClawJson(args, timeoutMs = CLI_TIMEOUT_MS) {
+async function runOpenClawJson(args, timeoutMs = runtimeConfig.cliTimeoutMs) {
   const { stdout } = await withTimeout(
-    execFileAsync(OPENCLAW_BIN, [...args, '--json'], {
+    execFileAsync(runtimeConfig.openclawBin, [...args, '--json'], {
       timeout: timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
       env: {
         ...process.env,
-        PATH: `${OPENCLAW_PATH_PREFIX}:${process.env.PATH || ''}`
+        PATH: `${runtimeConfig.openclawPathPrefix}:${process.env.PATH || ''}`
       }
     }),
     timeoutMs + 200,
@@ -123,20 +163,64 @@ function normalizeHistoryEntry(j) {
   return { role, text, ts };
 }
 
+async function getCachedJson(key, fetcher) {
+  const now = Date.now();
+  const entry = cache[key];
+  if (entry && entry.value && entry.expiresAt > now) {
+    metrics.cacheHits += 1;
+    return { data: entry.value, cache: 'hit' };
+  }
+
+  metrics.cacheMisses += 1;
+  const data = await fetcher();
+  cache[key] = {
+    value: data,
+    expiresAt: now + runtimeConfig.cacheTtlMs
+  };
+  return { data, cache: 'miss' };
+}
+
+function clearLookupCaches() {
+  cache.sessions = { value: null, expiresAt: 0 };
+  cache.agents = { value: null, expiresAt: 0 };
+}
+
+async function detectGitVersion() {
+  try {
+    const [{ stdout: commit }, { stdout: branch }] = await Promise.all([
+      execFileAsync('git', ['-C', TASKBRIDGE_ROOT, 'rev-parse', '--short', 'HEAD']),
+      execFileAsync('git', ['-C', TASKBRIDGE_ROOT, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    ]);
+
+    bridgeVersion = {
+      commit: commit.trim() || 'unknown',
+      branch: branch.trim() || 'unknown'
+    };
+  } catch {
+    bridgeVersion = { commit: 'unknown', branch: 'unknown' };
+  }
+}
+
 app.use((req, res, next) => {
+  metrics.requests += 1;
+
   req._startAt = Date.now();
   req._reqId = crypto.randomUUID().slice(0, 8);
   res.setHeader('X-Request-Id', req._reqId);
 
   const timer = setTimeout(() => {
     if (!res.headersSent) {
-      sendError(res, 504, 'Request timeout', `Exceeded ${REQUEST_TIMEOUT_MS}ms`, 'REQUEST_TIMEOUT');
+      sendError(res, 504, 'Request timeout', `Exceeded ${runtimeConfig.requestTimeoutMs}ms`, 'REQUEST_TIMEOUT');
     }
-  }, REQUEST_TIMEOUT_MS);
+  }, runtimeConfig.requestTimeoutMs);
 
   res.on('finish', () => {
     clearTimeout(timer);
     const dur = Date.now() - req._startAt;
+    metrics.totalLatencyMs += dur;
+    metrics.avgLatencyMs = Number((metrics.totalLatencyMs / Math.max(metrics.requests, 1)).toFixed(2));
+    if (res.statusCode >= 400) metrics.errors += 1;
+
     console.log(`[${new Date().toISOString()}] ${req._reqId} ${req.method} ${req.originalUrl} ${res.statusCode} ${dur}ms`);
   });
 
@@ -152,6 +236,66 @@ app.get('/health', async (_req, res) => {
   }
 });
 
+app.get('/api/version', (_req, res) => {
+  res.json({
+    service: 'task-bridge',
+    commit: bridgeVersion.commit,
+    branch: bridgeVersion.branch,
+    pid: SERVER_PID,
+    uptimeSec: Math.floor(process.uptime()),
+    startedAt: new Date(STARTED_AT_MS).toISOString(),
+    now: new Date().toISOString()
+  });
+});
+
+app.get('/api/selfcheck', async (_req, res) => {
+  const details = {
+    version: bridgeVersion,
+    pid: SERVER_PID,
+    uptimeSec: Math.floor(process.uptime()),
+    openclawBin: runtimeConfig.openclawBin,
+    openclawStatus: null
+  };
+
+  try {
+    const status = await runOpenClawJson(['status']);
+    details.openclawStatus = status;
+    return res.json({ ok: true, details });
+  } catch (e) {
+    return res.status(503).json({
+      ok: false,
+      details,
+      error: e.message,
+      code: e.code || 'SELFCHECK_FAILED'
+    });
+  }
+});
+
+app.post('/api/reload-config', auth, (req, res) => {
+  const before = {
+    cliTimeoutMs: runtimeConfig.cliTimeoutMs,
+    requestTimeoutMs: runtimeConfig.requestTimeoutMs,
+    maxPingText: runtimeConfig.maxPingText,
+    authEnabled: Boolean(runtimeConfig.authToken),
+    cacheTtlMs: runtimeConfig.cacheTtlMs,
+    openclawBin: runtimeConfig.openclawBin
+  };
+
+  loadRuntimeConfig();
+  clearLookupCaches();
+
+  const after = {
+    cliTimeoutMs: runtimeConfig.cliTimeoutMs,
+    requestTimeoutMs: runtimeConfig.requestTimeoutMs,
+    maxPingText: runtimeConfig.maxPingText,
+    authEnabled: Boolean(runtimeConfig.authToken),
+    cacheTtlMs: runtimeConfig.cacheTtlMs,
+    openclawBin: runtimeConfig.openclawBin
+  };
+
+  res.json({ ok: true, reloaded: true, before, after, clearedCaches: ['sessions', 'agents'] });
+});
+
 // Tasks are modeled as OpenClaw sessions (active conversation work units).
 app.get('/api/tasks', auth, async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 1000);
@@ -161,27 +305,37 @@ app.get('/api/tasks', auth, async (req, res) => {
   const statusFilter = String(req.query.status || '').trim().toLowerCase();
 
   try {
-    const sessionsData = await runOpenClawJson(['sessions', '--all-agents']);
-    const sessions = Array.isArray(sessionsData.sessions) ? sessionsData.sessions : [];
+    const [sessionsResult, agentsResult] = await Promise.all([
+      getCachedJson('sessions', () => runOpenClawJson(['sessions', '--all-agents'])),
+      getCachedJson('agents', () => runOpenClawJson(['agents', 'list']))
+    ]);
+
+    const sessions = Array.isArray(sessionsResult.data.sessions) ? sessionsResult.data.sessions : [];
+    const agents = Array.isArray(agentsResult.data) ? agentsResult.data : [];
+    const agentNameMap = new Map(agents.map((a) => [a.id, a.identityName || a.name || a.id]));
 
     const mapped = sessions
-      .map((s) => ({
-        id: s.sessionId || s.key,
-        key: s.key,
-        agentId: s.agentId || 'unknown',
-        kind: s.kind || 'unknown',
-        model: s.model || null,
-        updatedAt: s.updatedAt || null,
-        ageMs: s.ageMs ?? null,
-        totalTokens: s.totalTokens ?? null,
-        contextTokens: s.contextTokens ?? null,
-        status: s.abortedLastRun ? 'aborted' : 'active'
-      }))
+      .map((s) => {
+        const resolvedAgentId = s.agentId || 'unknown';
+        return {
+          id: s.sessionId || s.key,
+          key: s.key,
+          agentId: resolvedAgentId,
+          agentName: agentNameMap.get(resolvedAgentId) || resolvedAgentId,
+          kind: s.kind || 'unknown',
+          model: s.model || null,
+          updatedAt: s.updatedAt || null,
+          ageMs: s.ageMs ?? null,
+          totalTokens: s.totalTokens ?? null,
+          contextTokens: s.contextTokens ?? null,
+          status: s.abortedLastRun ? 'aborted' : 'active'
+        };
+      })
       .filter((t) => {
         if (agentId && t.agentId !== agentId) return false;
         if (statusFilter && t.status.toLowerCase() !== statusFilter) return false;
         if (q) {
-          const hay = `${t.id} ${t.key} ${t.agentId} ${t.kind} ${t.model || ''}`.toLowerCase();
+          const hay = `${t.id} ${t.key} ${t.agentId} ${t.agentName} ${t.kind} ${t.model || ''}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
@@ -189,7 +343,22 @@ app.get('/api/tasks', auth, async (req, res) => {
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
     const page = mapped.slice(offset, offset + limit);
-    res.json({ items: page, total: mapped.length, limit, offset, filters: { q, agentId, status: statusFilter || null } });
+    res.json({
+      items: page,
+      total: mapped.length,
+      limit,
+      offset,
+      filters: { q, agentId, status: statusFilter || null },
+      diagnostics: {
+        cache: {
+          sessions: sessionsResult.cache,
+          agents: agentsResult.cache,
+          ttlMs: runtimeConfig.cacheTtlMs,
+          hits: metrics.cacheHits,
+          misses: metrics.cacheMisses
+        }
+      }
+    });
   } catch (e) {
     return sendError(res, 500, 'Failed to read tasks', e.message, e.code || 'TASKS_LIST_FAILED');
   }
@@ -261,12 +430,13 @@ app.post('/api/tasks/:id/ping', auth, async (req, res) => {
 
 app.get('/api/config', auth, (_req, res) => {
   res.json({
-    host: HOST,
-    port: PORT,
-    authEnabled: Boolean(AUTH_TOKEN),
-    openclawBin: OPENCLAW_BIN,
-    requestTimeoutMs: REQUEST_TIMEOUT_MS,
-    cliTimeoutMs: CLI_TIMEOUT_MS
+    host: runtimeConfig.host,
+    port: runtimeConfig.port,
+    authEnabled: Boolean(runtimeConfig.authToken),
+    openclawBin: runtimeConfig.openclawBin,
+    requestTimeoutMs: runtimeConfig.requestTimeoutMs,
+    cliTimeoutMs: runtimeConfig.cliTimeoutMs,
+    cacheTtlMs: runtimeConfig.cacheTtlMs
   });
 });
 
@@ -289,9 +459,24 @@ app.get('/api/agents', auth, async (_req, res) => {
   }
 });
 
+app.get('/api/metrics', auth, (_req, res) => {
+  res.json({
+    requests: metrics.requests,
+    errors: metrics.errors,
+    avgLatencyMs: metrics.avgLatencyMs,
+    cacheHits: metrics.cacheHits,
+    cacheMisses: metrics.cacheMisses,
+    uptimeSec: Math.floor(process.uptime())
+  });
+});
+
 app.use((_req, res) => sendError(res, 404, 'Not found', 'Route does not exist', 'NOT_FOUND'));
 
-app.listen(PORT, HOST, () => {
-  console.log(`task-bridge listening at http://${HOST}:${PORT}`);
-  console.log(`OPENCLAW_BIN=${OPENCLAW_BIN}`);
+loadRuntimeConfig();
+await detectGitVersion();
+
+app.listen(runtimeConfig.port, runtimeConfig.host, () => {
+  console.log(`task-bridge listening at http://${runtimeConfig.host}:${runtimeConfig.port}`);
+  console.log(`OPENCLAW_BIN=${runtimeConfig.openclawBin}`);
+  console.log(`version=${bridgeVersion.commit} (${bridgeVersion.branch}) pid=${SERVER_PID}`);
 });
