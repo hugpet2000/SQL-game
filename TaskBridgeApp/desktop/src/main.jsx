@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 const DEFAULT_API = (import.meta.env.VITE_API_BASE || 'http://172.28.202.129:8787').trim();
@@ -6,6 +6,7 @@ const DEFAULT_API = (import.meta.env.VITE_API_BASE || 'http://172.28.202.129:878
 const STATUS_COLORS = {
   connected: { bg: '#13361f', fg: '#79e2a5', border: '#215a34' },
   degraded: { bg: '#3c2a12', fg: '#f7c873', border: '#6b4d20' },
+  reconnecting: { bg: '#3c2a12', fg: '#f7c873', border: '#6b4d20' },
   offline: { bg: '#3a151a', fg: '#ff9aa7', border: '#6d2831' },
   busy: { bg: '#16273a', fg: '#93c5fd', border: '#23405f' },
   idle: { bg: '#1f2632', fg: '#b7c2d6', border: '#39455a' },
@@ -39,6 +40,8 @@ function App() {
   const [lastPing, setLastPing] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
 
   const [autoReconnect, setAutoReconnect] = useState((localStorage.getItem('taskBridgeAutoReconnect') ?? '1') === '1');
   const [pollMs, setPollMs] = useState(Number(localStorage.getItem('taskBridgePollMs') || 6000));
@@ -52,6 +55,8 @@ function App() {
   const [logLevel, setLogLevel] = useState(localStorage.getItem('taskBridgeLogLevel') || 'info');
 
   const headers = useMemo(() => (authToken.trim() ? { Authorization: `Bearer ${authToken.trim()}` } : {}), [authToken]);
+  const latestRefreshId = useRef(0);
+  const toastTimer = useRef(null);
 
   const themeVars = useMemo(() => {
     const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
@@ -98,11 +103,12 @@ function App() {
   };
 
   const connectionState = useMemo(() => {
-    if (health.state === 'down') return 'offline';
-    if (error || backendSelfcheck?.ok === false) return 'degraded';
+    if (health.state === 'down' && consecutiveFailures >= 2) return 'offline';
+    if (health.state === 'down') return 'reconnecting';
+    if (error || backendSelfcheck?.ok === false || health.state === 'degraded') return 'degraded';
     if (health.state === 'ok') return 'connected';
-    return 'degraded';
-  }, [health.state, error, backendSelfcheck]);
+    return 'reconnecting';
+  }, [health.state, error, backendSelfcheck, consecutiveFailures]);
 
   const mappedAgents = useMemo(() => {
     return (agents || []).map((a) => {
@@ -157,11 +163,19 @@ function App() {
     return { activeAgents, running, queued, failed };
   }, [mappedAgents, tasks]);
 
+  const pushToast = (id, tone, message) => {
+    if (id !== latestRefreshId.current) return;
+    setToast({ tone, message });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
+  };
+
   const refreshAll = async (base = apiBase) => {
+    const requestId = ++latestRefreshId.current;
     setLoading(true);
-    setError('');
     try {
       const healthData = await fetchMaybeJson(`${base}/health`);
+      if (requestId !== latestRefreshId.current) return;
       setHealth({ state: healthData?.ok ? 'ok' : 'degraded', text: healthData?.ok ? 'Bridge reachable' : 'Bridge degraded' });
       const [tasksData, agentsData, metricsData, versionData, selfcheckData] = await Promise.allSettled([
         fetchMaybeJson(`${base}/api/tasks?limit=500&offset=0`),
@@ -170,21 +184,31 @@ function App() {
         fetchMaybeJson(`${base}/api/version`),
         fetchMaybeJson(`${base}/api/selfcheck`)
       ]);
+      if (requestId !== latestRefreshId.current) return;
       if (tasksData.status === 'fulfilled') setTasks(tasksData.value?.items || []);
       if (agentsData.status === 'fulfilled') setAgents(agentsData.value?.items || []);
       if (metricsData.status === 'fulfilled') setMetrics(metricsData.value || null);
       if (versionData.status === 'fulfilled') setBackendVersion(versionData.value || null);
       if (selfcheckData.status === 'fulfilled') setBackendSelfcheck(selfcheckData.value || null);
       const hadSoftFail = [tasksData, agentsData].some((x) => x.status === 'rejected');
-      if (hadSoftFail) setError('Connected, but some data endpoints failed.');
+      if (hadSoftFail) {
+        setError('Connected, but some data endpoints failed.');
+        pushToast(requestId, 'warn', 'Connected with partial data (some endpoints failed).');
+      } else {
+        setError('');
+      }
+      setConsecutiveFailures(0);
       setLastSync(new Date());
       setLastPing(new Date());
     } catch (e) {
+      if (requestId !== latestRefreshId.current) return;
       setHealth({ state: 'down', text: 'Bridge offline or unreachable' });
       setError(String(e.message || e));
       setLastPing(new Date());
+      setConsecutiveFailures((prev) => prev + 1);
+      pushToast(requestId, 'error', `Refresh failed: ${String(e.message || e)}`);
     } finally {
-      setLoading(false);
+      if (requestId === latestRefreshId.current) setLoading(false);
     }
   };
 
@@ -216,6 +240,16 @@ function App() {
   }, []);
 
   useEffect(() => { refreshAll(apiBase); }, [apiBase, authToken]);
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    const stillExists = mappedAgents.some((a) => a.id === selectedAgentId);
+    if (!stillExists) setSelectedAgentId(mappedAgents[0]?.id || '');
+  }, [mappedAgents, selectedAgentId]);
 
   useEffect(() => {
     if (!autoReconnect) return;
@@ -305,6 +339,8 @@ function App() {
           onSearch={setSearch}
           vars={themeVars}
         />
+
+        {toast && <Toast tone={toast.tone} message={toast.message} vars={themeVars} />}
 
         {activeTab === 'home' && (
           <HomeTab
@@ -405,6 +441,7 @@ function SidebarNav({ activeTab, onChange, connectionState, version, vars }) {
   const item = (id, label) => (
     <button
       onClick={() => onChange(id)}
+      aria-current={activeTab === id ? 'page' : undefined}
       style={{
         width: '100%',
         textAlign: 'left',
@@ -445,9 +482,9 @@ function TopHeaderBar({ title, onRefresh, loading, connectionState, search, onSe
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
         <h1 style={{ margin: 0, fontSize: 24 }}>{title}</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {search !== '' && <SearchInput value={search} onChange={onSearch} placeholder="Search agents or tasks" vars={vars} />}
+          {search !== '' && <SearchInput id="agents-search" label="Search agents or tasks" value={search} onChange={onSearch} placeholder="Search agents or tasks" vars={vars} />}
           <StatusBadge status={connectionState} />
-          <button onClick={onRefresh}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+          <button onClick={onRefresh} aria-label="Refresh data now">{loading ? 'Refreshing…' : 'Refresh'}</button>
         </div>
       </div>
     </div>
@@ -531,7 +568,7 @@ function AgentsTab({ agents, selectedAgent, selectedAgentId, onSelectAgent, filt
           />
           <button onClick={onRefresh}>Refresh list</button>
         </div>
-        <div style={{ maxHeight: '68vh', overflow: 'auto', display: 'grid', gap: 8 }}>
+        <div style={{ maxHeight: '68vh', overflow: 'auto', display: 'grid', gap: 8 }} role="listbox" aria-label="Agents list">
           {agents.length === 0 ? (
             <EmptyState title="No matching agents" text="Try another search/filter or verify connection." vars={vars} />
           ) : (
@@ -678,7 +715,7 @@ function Card({ title, children, vars }) {
 
 function StatCard({ title, value, status, onClick, vars }) {
   return (
-    <button onClick={onClick} style={{ textAlign: 'left', background: vars.card, color: vars.text, border: `1px solid ${vars.border}`, borderRadius: 14, padding: 12, cursor: 'pointer', boxShadow: vars.shadow }}>
+    <button onClick={onClick} aria-label={`${title}: ${value}`} style={{ textAlign: 'left', background: vars.card, color: vars.text, border: `1px solid ${vars.border}`, borderRadius: 14, padding: 12, cursor: 'pointer', boxShadow: vars.shadow }}>
       <div style={{ color: vars.muted, fontSize: 12 }}>{title}</div>
       <div style={{ fontSize: 30, fontWeight: 700, margin: '4px 0 8px' }}>{value}</div>
       <StatusBadge status={status} />
@@ -689,12 +726,18 @@ function StatCard({ title, value, status, onClick, vars }) {
 function StatusBadge({ status }) {
   const key = (status || 'idle').toLowerCase();
   const c = STATUS_COLORS[key] || STATUS_COLORS.idle;
-  return <span style={{ display: 'inline-block', background: c.bg, color: c.fg, border: `1px solid ${c.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{status}</span>;
+  const symbol = key === 'connected' || key === 'success' ? '✓' : key === 'degraded' || key === 'reconnecting' || key === 'queued' ? '•' : key === 'offline' || key === 'error' || key === 'failed' ? '!' : '○';
+  return <span role="status" aria-label={`Status: ${status}`} style={{ display: 'inline-block', background: c.bg, color: c.fg, border: `1px solid ${c.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{symbol} {status}</span>;
 }
 
 function AgentListItem({ agent, selected, onClick, formatTs, vars }) {
   return (
-    <button onClick={onClick} style={{ textAlign: 'left', background: selected ? vars.cardAlt : vars.card, color: vars.text, border: `1px solid ${selected ? '#4b75b8' : vars.border}`, borderRadius: 10, padding: 10, cursor: 'pointer' }}>
+    <button
+      onClick={onClick}
+      role="option"
+      aria-selected={selected}
+      aria-label={`${agent.name}, ${agent.role}, ${agent.status}, updated ${formatTs(agent.lastUpdated)}`}
+      style={{ textAlign: 'left', background: selected ? vars.cardAlt : vars.card, color: vars.text, border: `1px solid ${selected ? '#4b75b8' : vars.border}`, borderRadius: 10, padding: 10, cursor: 'pointer', outlineOffset: 2 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
         <div>
           <div style={{ fontWeight: 700 }}>{agent.name}</div>
@@ -708,16 +751,30 @@ function AgentListItem({ agent, selected, onClick, formatTs, vars }) {
   );
 }
 
-function SearchInput({ value, onChange, placeholder, vars }) {
-  return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={{ minWidth: 220, padding: '8px 10px', borderRadius: 10, border: `1px solid ${vars.border}`, background: vars.card, color: vars.text }} />;
+function SearchInput({ id, label, value, onChange, placeholder, vars }) {
+  return (
+    <label htmlFor={id} style={{ display: 'grid', gap: 4 }}>
+      <span style={{ fontSize: 12, color: vars.muted }}>{label}</span>
+      <input id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={{ minWidth: 220, padding: '8px 10px', borderRadius: 10, border: `1px solid ${vars.border}`, background: vars.card, color: vars.text }} />
+    </label>
+  );
 }
 
 function FilterChips({ options, value, onChange }) {
   return (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
       {options.map((o) => (
-        <button key={o.id} onClick={() => onChange(o.id)} style={{ borderRadius: 999, padding: '4px 10px', border: '1px solid #3a4558', background: value === o.id ? '#223247' : '#161b22', color: '#c6d4e3', cursor: 'pointer' }}>{o.label}</button>
+        <button key={o.id} onClick={() => onChange(o.id)} aria-pressed={value === o.id} style={{ borderRadius: 999, padding: '4px 10px', border: '1px solid #3a4558', background: value === o.id ? '#223247' : '#161b22', color: '#c6d4e3', cursor: 'pointer' }}>{o.label}</button>
       ))}
+    </div>
+  );
+}
+
+function Toast({ tone, message, vars }) {
+  const palette = tone === 'error' ? STATUS_COLORS.failed : tone === 'warn' ? STATUS_COLORS.degraded : STATUS_COLORS.connected;
+  return (
+    <div aria-live="polite" role="status" style={{ marginBottom: 10, background: palette.bg, color: palette.fg, border: `1px solid ${palette.border}`, borderRadius: 10, padding: '8px 10px' }}>
+      {message}
     </div>
   );
 }
