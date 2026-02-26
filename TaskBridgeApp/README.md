@@ -12,6 +12,12 @@ Sprint 1 wiring:
 - `/api/agents` now maps to `openclaw agents list --json`
 - `/health` validates bridge + `openclaw status --json`
 
+Sprint 2 updates:
+- Server-side task filters: `q`, `agentId`, `status`
+- New `/api/config` endpoint for runtime visibility (host/port/auth/bin)
+- Desktop supports `VITE_API_BASE` for easier Windows/WSL setup
+- Desktop adds agent filter dropdown wired to server filtering
+
 ## Structure
 - `bridge/` REST bridge service
 - `desktop/` Electron + React desktop app
