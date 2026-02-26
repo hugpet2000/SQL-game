@@ -23,6 +23,13 @@ Sprint 3 updates:
 - Dashboard row actions: History modal, Copy session key, quick open Control UI
 - Optional bearer token input in UI (stored locally)
 
+Sprint 4 updates (backend hardening):
+- New endpoint: `POST /api/tasks/:id/ping` to send a safe text ping into a session via OpenClaw CLI
+- Improved history parsing for nested arrays/objects in session JSONL content
+- Standardized error envelopes across endpoints: `{ error, details, code }`
+- Lightweight request logging with request IDs and duration
+- Request-level timeout handling + CLI timeout wrapping for reliability
+
 ## Structure
 - `bridge/` REST bridge service
 - `desktop/` Electron + React desktop app
@@ -48,3 +55,37 @@ Bridge supports:
 - `PORT` (default `8787`)
 - `HOST` (default `127.0.0.1`)
 - `AUTH_TOKEN` (optional; when set, requires `Authorization: Bearer <token>`)
+- `OPENCLAW_BIN` (default `/home/hugog/.npm-global/bin/openclaw`)
+- `OPENCLAW_PATH_PREFIX` (default `/home/hugog/.npm-global/bin`)
+- `CLI_TIMEOUT_MS` (default `15000`)
+- `REQUEST_TIMEOUT_MS` (default `20000`)
+- `MAX_PING_TEXT` (default `1200`)
+
+## API examples
+
+### List tasks
+```bash
+curl -s http://127.0.0.1:8787/api/tasks?limit=20 | jq
+```
+
+### Read session history
+```bash
+curl -s http://127.0.0.1:8787/api/tasks/<session-id>/history?limit=10 | jq
+```
+
+### Ping a session
+```bash
+curl -s -X POST http://127.0.0.1:8787/api/tasks/<session-id>/ping \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Quick ping from TaskBridge","agentId":"main"}' | jq
+```
+
+### Error envelope shape
+All non-2xx API errors return:
+```json
+{
+  "error": "Human readable summary",
+  "details": "Technical detail",
+  "code": "MACHINE_CODE"
+}
+```
