@@ -10,19 +10,36 @@ const statusColor = {
   unknown: '#6b7280'
 };
 
+const roleChip = {
+  user: { bg: '#dbeafe', fg: '#1e3a8a' },
+  assistant: { bg: '#dcfce7', fg: '#14532d' },
+  system: { bg: '#ede9fe', fg: '#4c1d95' },
+  tool: { bg: '#ffe4e6', fg: '#881337' },
+  unknown: { bg: '#e5e7eb', fg: '#374151' }
+};
+
 function App() {
   const [apiBase, setApiBase] = useState(localStorage.getItem('taskBridgeApi') || DEFAULT_API);
   const [apiDraft, setApiDraft] = useState(localStorage.getItem('taskBridgeApi') || DEFAULT_API);
   const [authToken, setAuthToken] = useState(localStorage.getItem('taskBridgeToken') || '');
   const [tokenDraft, setTokenDraft] = useState(localStorage.getItem('taskBridgeToken') || '');
+  const [bridgeManaged, setBridgeManaged] = useState(false);
 
   const [health, setHealth] = useState({ state: 'loading', text: 'Connecting…' });
   const [tasks, setTasks] = useState([]);
   const [agents, setAgents] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+
   const [history, setHistory] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(null);
+  const [historyState, setHistoryState] = useState({ loading: false, error: '' });
+
+  const [taskActionState, setTaskActionState] = useState({ pinging: false, message: '', error: '' });
+
+  const [diagConfig, setDiagConfig] = useState(null);
+  const [diagLatencyMs, setDiagLatencyMs] = useState(null);
+  const [diagState, setDiagState] = useState({ loading: true, error: '' });
 
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -37,10 +54,27 @@ function App() {
     return h;
   }, [authToken]);
 
-  const fetchJson = async (url) => {
-    const r = await fetch(url, { headers });
+  const fetchJson = async (url, init = {}) => {
+    const r = await fetch(url, { ...init, headers: { ...headers, ...(init.headers || {}) } });
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     return r.json();
+  };
+
+  const refreshDiagnostics = async (base = apiBase) => {
+    setDiagState({ loading: true, error: '' });
+    try {
+      const t0 = performance.now();
+      const [config] = await Promise.all([
+        fetchJson(`${base}/api/config`),
+        fetch(`${base}/health`, { method: 'GET', headers })
+      ]);
+      const latency = Math.round(performance.now() - t0);
+      setDiagConfig(config);
+      setDiagLatencyMs(latency);
+      setDiagState({ loading: false, error: '' });
+    } catch (e) {
+      setDiagState({ loading: false, error: e.message || 'Failed to load diagnostics' });
+    }
   };
 
   const refreshAll = async (base = apiBase) => {
@@ -74,17 +108,86 @@ function App() {
   const openHistory = async (task) => {
     setSelectedTask(task);
     setHistoryOpen(true);
+    await refreshSelectedHistory(task);
+  };
+
+  const refreshSelectedHistory = async (task = selectedTask) => {
+    if (!task?.id) return;
+    setHistoryState({ loading: true, error: '' });
+    setHistory([]);
     try {
       const data = await fetchJson(`${apiBase}/api/tasks/${encodeURIComponent(task.id)}/history?limit=25`);
       setHistory(data.items || []);
-    } catch {
+      setHistoryState({ loading: false, error: '' });
+    } catch (e) {
+      setHistoryState({ loading: false, error: e.message || 'Failed to load history' });
       setHistory([]);
     }
   };
 
-  useEffect(() => { refreshAll(apiBase); }, [apiBase, query, statusFilter, agentFilter, authToken]);
+  const pingSelected = async () => {
+    if (!selectedTask?.id) return;
+    setTaskActionState({ pinging: true, message: '', error: '' });
+    try {
+      const data = await fetchJson(`${apiBase}/api/tasks/${encodeURIComponent(selectedTask.id)}/ping`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'dashboard ping', agentId: selectedTask.agentId || undefined })
+      });
+      setTaskActionState({ pinging: false, message: data.message || 'Ping sent.', error: '' });
+    } catch (e) {
+      setTaskActionState({ pinging: false, message: '', error: e.message || 'Ping failed' });
+    }
+  };
+
+  const copyText = async (text, label) => {
+    try {
+      await navigator.clipboard?.writeText(text || '');
+      setTaskActionState((s) => ({ ...s, message: `${label} copied`, error: '' }));
+    } catch {
+      setTaskActionState((s) => ({ ...s, error: `Failed to copy ${label.toLowerCase()}` }));
+    }
+  };
+
   useEffect(() => {
-    const t = setInterval(() => refreshAll(apiBase), health.state === 'down' ? 7000 : 2000);
+    let off = null;
+    (async () => {
+      if (window.bridgeCtl?.getUrl) {
+        try {
+          const detected = await window.bridgeCtl.getUrl();
+          if (detected) {
+            setBridgeManaged(true);
+            setApiBase(detected);
+            setApiDraft(detected);
+            localStorage.setItem('taskBridgeApi', detected);
+          }
+          if (window.bridgeCtl.onStatus) {
+            off = window.bridgeCtl.onStatus((payload) => {
+              if (payload?.url) {
+                setApiBase(payload.url);
+                setApiDraft(payload.url);
+                localStorage.setItem('taskBridgeApi', payload.url);
+              }
+            });
+          }
+        } catch {}
+      }
+    })();
+    return () => {
+      if (typeof off === 'function') off();
+    };
+  }, []);
+
+  useEffect(() => {
+    refreshAll(apiBase);
+    refreshDiagnostics(apiBase);
+  }, [apiBase, query, statusFilter, agentFilter, authToken]);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      refreshAll(apiBase);
+      refreshDiagnostics(apiBase);
+    }, health.state === 'down' ? 7000 : 4000);
     return () => clearInterval(t);
   }, [apiBase, query, statusFilter, agentFilter, authToken, health.state]);
 
@@ -126,7 +229,19 @@ function App() {
         <input value={apiDraft} onChange={(e) => setApiDraft(e.target.value)} placeholder="API base" style={{ minWidth: 320, padding: 7 }} />
         <input value={tokenDraft} onChange={(e) => setTokenDraft(e.target.value)} placeholder="Bearer token (optional)" style={{ minWidth: 260, padding: 7 }} />
         <button onClick={applyConnection}>Apply</button>
-        <button onClick={() => refreshAll(apiBase)}>Refresh</button>
+        <button onClick={() => { refreshAll(apiBase); refreshDiagnostics(apiBase); }}>Refresh</button>
+        {bridgeManaged && (
+          <button onClick={async () => {
+            if (!window.bridgeCtl?.restart) return;
+            const info = await window.bridgeCtl.restart();
+            if (info?.url) {
+              setApiBase(info.url);
+              setApiDraft(info.url);
+            }
+            refreshAll(info?.url || apiBase);
+            refreshDiagnostics(info?.url || apiBase);
+          }}>Restart bridge</button>
+        )}
       </div>
 
       <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -149,57 +264,119 @@ function App() {
         <button onClick={() => setSortDir((d) => d === 'asc' ? 'desc' : 'asc')}>Dir: {sortDir}</button>
       </div>
 
-      <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10 }}>
-        <table cellPadding="6" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead><tr><th>Status</th><th>Task ID</th><th>Agent</th><th>Kind</th><th>Age(s)</th><th>Tokens</th><th>Updated</th><th>Actions</th></tr></thead>
-          <tbody>
-            {pageRows.map((t) => (
-              <tr key={t.id} style={{ borderTop: '1px solid #eee' }}>
-                <td><span style={{ background: statusColor[(t.status || '').toLowerCase()] || statusColor.unknown, color: '#fff', borderRadius: 999, padding: '2px 8px' }}>{t.status}</span></td>
-                <td>{t.id}</td>
-                <td>{t.agentId}</td>
-                <td>{t.kind}</td>
-                <td>{t.ageMs != null ? Math.round(t.ageMs / 1000) : '-'}</td>
-                <td>{t.totalTokens ?? '-'}</td>
-                <td>{formatIso(t.updatedAt)}</td>
-                <td style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => openHistory(t)}>History</button>
-                  <button onClick={() => navigator.clipboard?.writeText(t.key || '')}>Copy key</button>
-                  <button onClick={() => window.open(`${apiBase.replace(/:\d+$/, ':18789')}/`, '_blank')}>Open UI</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, alignItems: 'start' }}>
+        <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10 }}>
+          <table cellPadding="6" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr><th>Status</th><th>Task ID</th><th>Agent</th><th>Kind</th><th>Age(s)</th><th>Tokens</th><th>Updated</th><th>Actions</th></tr></thead>
+            <tbody>
+              {pageRows.map((t) => (
+                <tr key={t.id} style={{ borderTop: '1px solid #eee', background: selectedTask?.id === t.id ? '#f8fafc' : 'transparent' }}>
+                  <td><span style={{ background: statusColor[(t.status || '').toLowerCase()] || statusColor.unknown, color: '#fff', borderRadius: 999, padding: '2px 8px' }}>{t.status}</span></td>
+                  <td>{t.id}</td>
+                  <td>{t.agentId}</td>
+                  <td>{t.kind}</td>
+                  <td>{t.ageMs != null ? Math.round(t.ageMs / 1000) : '-'}</td>
+                  <td>{t.totalTokens ?? '-'}</td>
+                  <td>{formatTs(t.updatedAt)}</td>
+                  <td style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => openHistory(t)}>History</button>
+                    <button onClick={() => setSelectedTask(t)}>Select</button>
+                    <button onClick={() => window.open(`${apiBase.replace(/:\d+$/, ':18789')}/`, '_blank')}>Open UI</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 12 }}>Showing {pageRows.length}/{filtered.length}</span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button disabled={pageSafe <= 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Prev</button>
-            <span style={{ fontSize: 12 }}>Page {pageSafe + 1}/{totalPages}</span>
-            <button disabled={pageSafe + 1 >= totalPages} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>Next</button>
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12 }}>Showing {pageRows.length}/{filtered.length}</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button disabled={pageSafe <= 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Prev</button>
+              <span style={{ fontSize: 12 }}>Page {pageSafe + 1}/{totalPages}</span>
+              <button disabled={pageSafe + 1 >= totalPages} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>Next</button>
+            </div>
           </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <Panel title="Task actions">
+            {!selectedTask ? <div style={{ color: '#6b7280', fontSize: 13 }}>Select a task row to enable actions.</div> : (
+              <>
+                <div style={{ fontSize: 12, marginBottom: 8 }}><b>ID:</b> {selectedTask.id}</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <button disabled={taskActionState.pinging} onClick={pingSelected}>{taskActionState.pinging ? 'Pinging…' : 'Ping session'}</button>
+                  <button onClick={() => refreshSelectedHistory(selectedTask)}>Refresh selected history</button>
+                  <button onClick={() => copyText(selectedTask.id || '', 'Session ID')}>Copy session id</button>
+                  <button onClick={() => copyText(selectedTask.key || '', 'Session key')}>Copy session key</button>
+                </div>
+                {taskActionState.message && <div style={{ fontSize: 12, color: '#166534' }}>{taskActionState.message}</div>}
+                {taskActionState.error && <div style={{ fontSize: 12, color: '#b91c1c' }}>{taskActionState.error}</div>}
+              </>
+            )}
+          </Panel>
+
+          <Panel title="Diagnostics">
+            {diagState.loading ? <div style={{ fontSize: 13, color: '#6b7280' }}>Loading diagnostics…</div> : diagState.error ? (
+              <div style={{ fontSize: 13, color: '#b91c1c' }}>{diagState.error}</div>
+            ) : (
+              <div style={{ fontSize: 13, display: 'grid', gap: 4 }}>
+                <div><b>Latency:</b> {diagLatencyMs ?? '-'} ms</div>
+                <div><b>Host:</b> {diagConfig?.host ?? '-'}</div>
+                <div><b>Port:</b> {diagConfig?.port ?? '-'}</div>
+                <div><b>Auth enabled:</b> {String(diagConfig?.authEnabled ?? false)}</div>
+                <div style={{ wordBreak: 'break-all' }}><b>openclawBin:</b> {diagConfig?.openclawBin ?? '-'}</div>
+              </div>
+            )}
+          </Panel>
         </div>
       </div>
 
       {historyOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', display: 'grid', placeItems: 'center' }}>
-          <div style={{ width: 'min(900px, 92vw)', maxHeight: '82vh', overflow: 'auto', background: 'white', borderRadius: 10, padding: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0 }}>Session history preview</h3>
-              <button onClick={() => setHistoryOpen(false)}>Close</button>
-            </div>
-            <p style={{ fontSize: 12, color: '#6b7280' }}>{selectedTask?.id}</p>
-            {history.length === 0 ? <p>No history available.</p> : history.map((m, i) => (
-              <div key={i} style={{ borderTop: '1px solid #f0f0f0', padding: '8px 0' }}>
-                <div style={{ fontSize: 12, color: '#6b7280' }}>{m.role || 'unknown'} • {formatIso(m.ts)}</div>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{m.text || ''}</div>
+          <div style={{ width: 'min(960px, 92vw)', maxHeight: '82vh', background: 'white', borderRadius: 10, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff', borderBottom: '1px solid #e5e7eb', padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Session history preview</h3>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>{selectedTask?.id}</div>
               </div>
-            ))}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => refreshSelectedHistory(selectedTask)}>Refresh</button>
+                <button onClick={() => setHistoryOpen(false)}>Close</button>
+              </div>
+            </div>
+
+            <div style={{ overflow: 'auto', padding: 12, maxHeight: '70vh' }}>
+              {historyState.loading ? <p style={{ color: '#6b7280' }}>Loading history…</p> : null}
+              {!historyState.loading && historyState.error ? <p style={{ color: '#b91c1c' }}>{historyState.error}</p> : null}
+              {!historyState.loading && !historyState.error && history.length === 0 ? <p>No history available.</p> : null}
+
+              {!historyState.loading && !historyState.error && history.map((m, i) => {
+                const role = (m.role || 'unknown').toLowerCase();
+                const style = roleChip[role] || roleChip.unknown;
+                return (
+                  <div key={i} style={{ borderTop: '1px solid #f0f0f0', padding: '10px 0' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ background: style.bg, color: style.fg, borderRadius: 999, padding: '2px 8px', fontSize: 11, textTransform: 'uppercase' }}>{role}</span>
+                      <span style={{ fontSize: 12, color: '#6b7280' }}>{formatTs(m.ts)}</span>
+                    </div>
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{m.text || ''}</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
     </main>
+  );
+}
+
+function Panel({ title, children }) {
+  return (
+    <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10 }}>
+      <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 16 }}>{title}</h3>
+      {children}
+    </div>
   );
 }
 
@@ -208,11 +385,11 @@ function Badge({ health }) {
   return <span style={{ color: '#fff', background: bg, borderRadius: 999, padding: '3px 10px', fontSize: 12 }}>{health.text}</span>;
 }
 
-function formatIso(iso) {
+function formatTs(iso) {
   if (!iso) return '-';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString();
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
