@@ -695,11 +695,15 @@ app.use((req, res, next) => {
   req._reqId = crypto.randomUUID().slice(0, 8);
   res.setHeader('X-Request-Id', req._reqId);
 
+  const requestTimeoutMs = req.path.includes('/api/tasks/') && req.path.endsWith('/ping')
+    ? Math.max(runtimeConfig.requestTimeoutMs, 60000)
+    : runtimeConfig.requestTimeoutMs;
+
   const timer = setTimeout(() => {
-    if (!res.headersSent) {
-      sendError(res, 504, 'Request timeout', `Exceeded ${runtimeConfig.requestTimeoutMs}ms`, 'REQUEST_TIMEOUT');
+    if (!res.headersSent && !res.writableEnded) {
+      sendError(res, 504, 'Request timeout', `Exceeded ${requestTimeoutMs}ms`, 'REQUEST_TIMEOUT');
     }
-  }, runtimeConfig.requestTimeoutMs);
+  }, requestTimeoutMs);
 
   res.on('finish', () => {
     clearTimeout(timer);
@@ -724,7 +728,7 @@ app.get('/health', async (_req, res) => {
   }
 });
 
-app.get('/api/healthz', (_req, res) => {
+function sendHealthz(res) {
   const p95LatencyMs = calcP95(health.latencySamplesMs);
   const computed = computeHealthState();
 
@@ -744,7 +748,10 @@ app.get('/api/healthz', (_req, res) => {
     latencyP95Ms: p95LatencyMs,
     breakerOpen: computed.breakerOpen
   });
-});
+}
+
+app.get('/healthz', (_req, res) => sendHealthz(res));
+app.get('/api/healthz', (_req, res) => sendHealthz(res));
 
 app.get('/api/version', (_req, res) => {
   res.json({
@@ -983,6 +990,7 @@ app.post('/api/tasks/:id/ping', auth, async (req, res) => {
 
       try {
         const result = await runOpenClawJson(args, Math.max(runtimeConfig.cliTimeoutMs, 50000), { retries: 1 });
+        if (res.headersSent || res.writableEnded) return;
         return res.json({ ok: true, sessionId, sent: true, textLength: text.length, agentId: agentId || null, attempts: i + 1, triedAgentIds: candidateAgents.map((a) => a || null), discoveredAgentSource, result });
       } catch (e) {
         lastErr = e;
@@ -990,9 +998,11 @@ app.post('/api/tasks/:id/ping', auth, async (req, res) => {
       }
     }
 
+    if (res.headersSent || res.writableEnded) return;
     const stable = createStableError(lastErr || new Error('Unknown ping error'), 'PING_FAILED');
     return sendError(res, 502, 'Failed to ping session', stable.message, stable.code, { diagnostics: stable });
   } catch (e) {
+    if (res.headersSent || res.writableEnded) return;
     const stable = createStableError(e, 'PING_FAILED');
     return sendError(res, 502, 'Failed to ping session', stable.message, stable.code, { diagnostics: stable });
   }

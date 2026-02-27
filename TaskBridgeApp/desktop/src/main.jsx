@@ -177,20 +177,42 @@ function App() {
       const healthData = await fetchMaybeJson(`${base}/health`);
       if (requestId !== latestRefreshId.current) return;
       setHealth({ state: healthData?.ok ? 'ok' : 'degraded', text: healthData?.ok ? 'Bridge reachable' : 'Bridge degraded' });
-      const [tasksData, agentsData, metricsData, versionData, selfcheckData] = await Promise.allSettled([
+      const [summaryData, sessionsData, healthPanelData, agentsData, tasksFallback, metricsData, versionData, selfcheckData] = await Promise.allSettled([
+        fetchMaybeJson(`${base}/api/dashboard/summary`),
+        fetchMaybeJson(`${base}/api/dashboard/sessions?limit=500&offset=0`),
+        fetchMaybeJson(`${base}/api/dashboard/health`),
+        fetchMaybeJson(`${base}/api/dashboard/agents`),
         fetchMaybeJson(`${base}/api/tasks?limit=500&offset=0`),
-        fetchMaybeJson(`${base}/api/agents`),
         fetchMaybeJson(`${base}/api/metrics`),
         fetchMaybeJson(`${base}/api/version`),
         fetchMaybeJson(`${base}/api/selfcheck`)
       ]);
       if (requestId !== latestRefreshId.current) return;
-      if (tasksData.status === 'fulfilled') setTasks(tasksData.value?.items || []);
-      if (agentsData.status === 'fulfilled') setAgents(agentsData.value?.items || []);
+
+      if (sessionsData.status === 'fulfilled') {
+        setTasks(sessionsData.value?.items || []);
+      } else if (tasksFallback.status === 'fulfilled') {
+        setTasks(tasksFallback.value?.items || []);
+      }
+
+      if (agentsData.status === 'fulfilled') {
+        setAgents(agentsData.value?.items || []);
+      } else if (summaryData.status === 'fulfilled') {
+        setAgents(summaryData.value?.agentsSnapshot || []);
+      }
+
+      if (healthPanelData.status === 'fulfilled') {
+        const hp = healthPanelData.value || {};
+        if (hp.connection?.lastPingAt) setLastPing(new Date(hp.connection.lastPingAt));
+      } else if (summaryData.status === 'fulfilled') {
+        const hp = summaryData.value?.healthPanel || {};
+        if (hp.connection?.lastPingAt) setLastPing(new Date(hp.connection.lastPingAt));
+      }
+
       if (metricsData.status === 'fulfilled') setMetrics(metricsData.value || null);
       if (versionData.status === 'fulfilled') setBackendVersion(versionData.value || null);
       if (selfcheckData.status === 'fulfilled') setBackendSelfcheck(selfcheckData.value || null);
-      const hadSoftFail = [tasksData, agentsData].some((x) => x.status === 'rejected');
+      const hadSoftFail = [sessionsData, agentsData].every((x) => x.status === 'rejected') && tasksFallback.status === 'rejected';
       if (hadSoftFail) {
         setError('Connected, but some data endpoints failed.');
         pushToast(requestId, 'warn', 'Connected with partial data (some endpoints failed).');
