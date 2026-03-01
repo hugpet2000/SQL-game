@@ -68,4 +68,13 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>smoke</id>
+            <properties>
+                <test>ApiSmokeTest</test>
+            </properties>
+        </profile>
+    </profiles>
 </project>

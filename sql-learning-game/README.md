@@ -31,6 +31,18 @@ Open: http://localhost:7070
 
 ## Test
 
+### Fast smoke (critical integration checks)
+
+Runs only a lightweight API/gameplay smoke test for quick v1.1 stability checks while iterating v1.2 playtest tweaks.
+
+```bash
+mvn -Psmoke test
+```
+
+### Full test suite
+
+Runs all unit + integration tests.
+
 ```bash
 mvn test
 ```
