@@ -11,6 +11,7 @@ import com.plupp.sqlgame.store.LeaderboardStore;
 import com.plupp.sqlgame.store.ProgressStore;
 import io.javalin.Javalin;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,15 +37,17 @@ public class App {
         app.get("/api/levels/{id}", ctx -> {
             String id = ctx.pathParam("id");
             LevelDefinition level = levels.byId(id).orElseThrow(() -> new IllegalArgumentException("Unknown level"));
-            ctx.json(Map.of(
-                    "id", level.id,
-                    "title", level.title,
-                    "difficulty", level.difficulty,
-                    "objective", level.objective,
-                    "prompt", level.prompt,
-                    "hints", level.hints,
-                    "allowedCommands", level.allowedCommands
-            ));
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("id", level.id);
+            payload.put("title", level.title);
+            payload.put("difficulty", level.difficulty);
+            payload.put("objective", level.objective);
+            payload.put("prompt", level.prompt);
+            payload.put("hints", level.hints == null ? List.of() : level.hints);
+            payload.put("allowedCommands", level.allowedCommands == null ? List.of() : level.allowedCommands);
+
+            ctx.json(payload);
         });
 
         app.get("/api/levels/{id}/schema", ctx -> {

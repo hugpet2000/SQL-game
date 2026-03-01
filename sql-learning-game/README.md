@@ -4,7 +4,7 @@ A developer-style SQL learning game for young tech students (16–25), built in 
 
 ## What is included
 
-- Campaign with **10 progressive missions** (beginner → boss)
+- Campaign with **15 progressive missions**
 - Real SQL execution via **H2 embedded DB**
 - Deterministic level reset (schema + seed SQL)
 - Query evaluator: correctness, timing, score, XP, achievements
@@ -29,6 +29,12 @@ mvn -q exec:java
 
 Open: http://localhost:7070
 
+## Test
+
+```bash
+mvn test
+```
+
 ## Project structure
 
 - `src/main/java/com/plupp/sqlgame/core` — level loading, SQL execution, evaluation
@@ -38,5 +44,4 @@ Open: http://localhost:7070
 
 ## Notes
 
-- This environment currently lacks `javac`, so local compile/test may require installing a JDK package.
 - Designed to be extensible: add more YAML levels without changing evaluator logic.

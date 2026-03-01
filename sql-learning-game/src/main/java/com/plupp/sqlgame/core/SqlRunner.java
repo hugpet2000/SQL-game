@@ -210,9 +210,28 @@ public class SqlRunner {
 
     private String friendlySqlError(String raw) {
         if (raw == null) return "Unknown SQL error";
-        if (raw.contains("Syntax error")) return "Syntax issue detected. Check commas, aliases, and clause order.";
-        if (raw.contains("Column") && raw.contains("not found")) return "Column not found. Open the schema panel and verify names.";
-        if (raw.contains("Table") && raw.contains("not found")) return "Table not found. Did you use the correct table name/alias?";
+
+        String normalized = raw.toLowerCase(Locale.ROOT);
+
+        if (normalized.contains("syntax error")) {
+            return "Syntax issue detected. Check commas, aliases, and clause order.";
+        }
+        if (normalized.contains("column") && normalized.contains("not found")) {
+            return "Column not found. Open the schema panel and verify names.";
+        }
+        if (normalized.contains("table") && normalized.contains("not found")) {
+            return "Table not found. Did you use the correct table name/alias?";
+        }
+        if (normalized.contains("ambiguous") && normalized.contains("column")) {
+            return "Ambiguous column name. Prefix it with a table alias (for example: c.id).";
+        }
+        if (normalized.contains("division by zero")) {
+            return "Division by zero. Check your denominator or add a CASE/NULLIF guard.";
+        }
+        if (normalized.contains("data conversion") || normalized.contains("cannot convert")) {
+            return "Type conversion failed. Verify your value types and CAST/formatting.";
+        }
+
         return raw;
     }
 }
