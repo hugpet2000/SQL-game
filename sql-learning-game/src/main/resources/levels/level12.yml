@@ -2,18 +2,18 @@ id: level-12
 title: Sales Podium Without Window Functions
 difficulty: advanced
 objective: Simulate ranking in H2 using a correlated subquery.
-objectiveCue: 'Slightly harder than level 11: aggregate first, then apply deterministic tie-break ranking.'
-prompt: 'Practice loop: (1) build revenue totals per rep, (2) test the totals table alone, (3) add correlated rank logic. Return rep name, revenue, and rank_pos (1 = highest), tie-break by lower rep id.'
-explanationSnippet: Create one revenue row per rep, then correlated COUNT gives a deterministic rank without window functions.
-encouragement: "Nice progression\u2014totals-first then ranking is a reusable pattern for constrained SQL engines."
-xp: 240
+objectiveCue: 'Harder than 11: aggregate first, then compute deterministic rank.'
+prompt: 'Practice loop: (1) build revenue totals per rep, (2) validate totals table, (3) add correlated rank_pos where 1 = top revenue and ties favor lower rep_id.'
+explanationSnippet: Derived totals + correlated counting emulate ranking when window functions are unavailable.
+encouragement: Excellent control—this pattern is robust in constrained SQL environments.
+xp: 320
 orderMatters: true
 allowedCommands:
 - SELECT
 hints:
-- 'Pass 1 (base table): create one row per rep with SUM(amount) AS revenue.'
-- 'Pass 2 (ranking idea): rank is COUNT(*) + 1 of peer rows with greater revenue, or same revenue and lower rep_id.'
-- 'Pass 3 (final shape): wrap totals as t, correlated totals as t2, then ORDER BY rank_pos ASC, t.name ASC.'
+- 'Pass 1: one row per rep with SUM(amount) AS revenue'
+- 'Pass 2: rank formula is COUNT(*) + 1 over peers with higher revenue, or same revenue + lower rep_id'
+- 'Pass 3: order final output by rank_pos ASC, then name ASC'
 seedSql: 'CREATE TABLE reps (id INT PRIMARY KEY, name VARCHAR(100));
 
   CREATE TABLE deals (id INT PRIMARY KEY, rep_id INT, amount DECIMAL(10,2));

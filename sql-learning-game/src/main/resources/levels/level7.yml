@@ -2,15 +2,25 @@ id: level-7
 title: Subquery Strike
 difficulty: advanced
 objective: Use subquery for comparison.
-prompt: List students whose score is above the average score.
-xp: 170
+objectiveCue: 'First subquery: compare each row to a computed benchmark.'
+prompt: Return students whose score is above the overall average exam score.
+explanationSnippet: A scalar subquery injects a dynamic threshold into row-level filtering.
+encouragement: Great jump—subqueries unlock powerful comparison logic.
+xp: 180
 orderMatters: false
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "WHERE score > (SELECT AVG(score) FROM exams)"
-seedSql: |
-  CREATE TABLE exams (student VARCHAR(100), score INT);
-  INSERT INTO exams VALUES ('Ada', 88);
-  INSERT INTO exams VALUES ('Bex', 72);
-  INSERT INTO exams VALUES ('Cato', 94);
-expectedQuery: "SELECT student FROM exams WHERE score > (SELECT AVG(score) FROM exams);"
+- Outer query selects student from exams
+- Use WHERE score > (SELECT AVG(score) FROM exams)
+- Keep the subquery scalar (single value)
+seedSql: 'CREATE TABLE exams (student VARCHAR(100), score INT);
+
+  INSERT INTO exams VALUES (''Ada'', 88);
+
+  INSERT INTO exams VALUES (''Bex'', 72);
+
+  INSERT INTO exams VALUES (''Cato'', 94);
+
+  '
+expectedQuery: SELECT student FROM exams WHERE score > (SELECT AVG(score) FROM exams);

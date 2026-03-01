@@ -2,15 +2,25 @@ id: level-6
 title: HAVING Boss
 difficulty: intermediate
 objective: Filter groups with HAVING.
-prompt: Show departments where average salary exceeds 70000.
-xp: 150
+objectiveCue: Filter after aggregation using HAVING.
+prompt: Return departments where average salary is greater than 70000.
+explanationSnippet: HAVING filters grouped results, unlike WHERE which filters raw rows.
+encouragement: Excellent—post-aggregation filtering is a key reporting move.
+xp: 155
 orderMatters: false
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "GROUP BY department then HAVING AVG(salary) > 70000"
-seedSql: |
-  CREATE TABLE employees (id INT PRIMARY KEY, name VARCHAR(100), department VARCHAR(50), salary INT);
-  INSERT INTO employees VALUES (1, 'Lina', 'Engineering', 90000);
-  INSERT INTO employees VALUES (2, 'Noah', 'Engineering', 85000);
-  INSERT INTO employees VALUES (3, 'Mira', 'Support', 50000);
-expectedQuery: "SELECT department FROM employees GROUP BY department HAVING AVG(salary) > 70000;"
+- GROUP BY department
+- Use HAVING AVG(salary) > 70000
+- Return only the department column
+seedSql: 'CREATE TABLE employees (id INT PRIMARY KEY, name VARCHAR(100), department VARCHAR(50), salary INT);
+
+  INSERT INTO employees VALUES (1, ''Lina'', ''Engineering'', 90000);
+
+  INSERT INTO employees VALUES (2, ''Noah'', ''Engineering'', 85000);
+
+  INSERT INTO employees VALUES (3, ''Mira'', ''Support'', 50000);
+
+  '
+expectedQuery: SELECT department FROM employees GROUP BY department HAVING AVG(salary) > 70000;

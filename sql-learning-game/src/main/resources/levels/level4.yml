@@ -2,17 +2,29 @@ id: level-4
 title: First JOIN
 difficulty: intermediate
 objective: Join customers and orders.
-prompt: Return customer name and order total for every order.
-xp: 130
+objectiveCue: 'First join: connect IDs across two tables.'
+prompt: Return customer name and order total for every order row.
+explanationSnippet: JOIN combines related rows so facts (orders) gain dimension context (customer).
+encouragement: Great join setup—you linked tables using the correct key path.
+xp: 125
 orderMatters: false
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "JOIN customers c ON c.id = o.customer_id"
-seedSql: |
-  CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100));
+- FROM customers c JOIN orders o ON c.id = o.customer_id
+- Select c.name and o.total
+- Use an inner JOIN so each result represents a real order
+seedSql: 'CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100));
+
   CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
-  INSERT INTO customers VALUES (1, 'Amina');
-  INSERT INTO customers VALUES (2, 'Bashir');
+
+  INSERT INTO customers VALUES (1, ''Amina'');
+
+  INSERT INTO customers VALUES (2, ''Bashir'');
+
   INSERT INTO orders VALUES (11, 1, 120.00);
+
   INSERT INTO orders VALUES (12, 2, 330.00);
-expectedQuery: "SELECT c.name, o.total FROM customers c JOIN orders o ON c.id = o.customer_id;"
+
+  '
+expectedQuery: SELECT c.name, o.total FROM customers c JOIN orders o ON c.id = o.customer_id;

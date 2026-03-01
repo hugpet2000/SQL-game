@@ -11,32 +11,23 @@
 - ✅ Core unit tests for evaluator + SQL runner.
 
 ## Newly added in this wave
-- ✅ `level11`: LEFT JOIN with zero-order preservation.
-- ✅ `level12`: ranking workaround without window functions.
-- ✅ `level13`: normalization drift debugging via mismatch detection.
-- ✅ `level14`: anti-join with `NOT EXISTS`.
-- ✅ `level15`: optimization mindset (filter early, aggregate targeted slice).
+- ✅ **Prompt/hint polish (levels 1–15):** every mission now uses clearer objective cues and step-based hints to improve progression from basics to advanced patterns.
+- ✅ **Progression tuning:** added concise explanation/encouragement copy across early and mid levels so reinforcement is consistent (not only advanced wave).
+- ✅ **XP rebalance:** updated base XP curve to better reward complexity, especially advanced/boss content (`level11–15` now 290/320/300/340/380).
+- ✅ **Scoring rebalance in engine:** difficulty-aware bonus scaling + explicit difficulty XP bonus.
+  - multipliers: beginner `1.00`, intermediate `1.10`, advanced `1.25`, boss `1.40`
+  - additive XP bonus: intermediate `+10`, advanced `+25`, boss `+45`
 
 ## Not shipped yet
-- ❌ API/integration smoke tests for full gameplay loop.
-- ❌ Telemetry/playtest instrumentation for balancing.
+- ❌ Telemetry/playtest instrumentation for balancing (real player attempt-time distributions).
 - ❌ Classroom/admin reporting features.
+- ❌ Explain-plan quality scoring (`planScore` still TODO).
 
-## Next 3 actions
-1. Add API + level-loading integration tests.
-2. Run playtest balancing pass for levels 11–15 (hints, XP, clarity).
-3. Draft level-authoring checklist/template for future packs.
+## QA outcome (this wave)
+- ✅ `mvn test` passes after content + evaluator changes.
+- ✅ Regression checks still validate all level YAMLs and expected queries.
 
-## Retention UX polish (v1.2 pass)
-- ✅ Advanced levels (11–15) now include `objectiveCue` for faster objective parsing.
-- ✅ Added lightweight `explanationSnippet` + `encouragement` hooks in level model/API.
-- ✅ Frontend shows a concise “Why this works” snippet when present.
-- ✅ Hint timing polish: advanced hints unlock after first run, auto-nudge appears after repeated misses.
-- ✅ Feedback copy tuned for concise encouragement on wins + clearer mismatch guidance.
-
-## Level balancing notes (v1.2 learning-quality cycle)
-- ✅ Levels 11–15 prompts now use a short **practice loop** format (build → verify → finalize) to strengthen repetition.
-- ✅ Hints now use **3-pass scaffolding** (structure, validation, final shape) for lower-friction recovery after misses.
-- ✅ Success reinforcement now names the transferable pattern learned in each level.
-- ✅ Difficulty ramp is explicit and gentler: level 12 steps up from 11, level 13 is a brief cooldown, levels 14–15 ramp slightly.
-- ✅ No mission-count changes; this is a lightweight, content-only balancing pass.
+## Next 3 milestones
+1. Add lightweight telemetry capture (attempt count, solve time, hint tier reached) for balancing with real data.
+2. Introduce level-authoring schema/checklist linter to prevent content drift and enforce hint-quality standards.
+3. Implement explain-plan-based scoring component for advanced/boss optimization missions.

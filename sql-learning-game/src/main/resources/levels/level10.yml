@@ -2,23 +2,39 @@ id: level-10
 title: Final Boss - Revenue by Category
 difficulty: boss
 objective: Multi-join + aggregation + ordering.
-prompt: Return category name and total revenue, highest first.
-xp: 250
+objectiveCue: 'Boss recap: multi-join + aggregate + deterministic ordering.'
+prompt: Return category name and total revenue, highest revenue first.
+explanationSnippet: Revenue rolls up from line items through products into categories.
+encouragement: Boss clear—excellent full-pipeline SQL from joins to ranked output.
+xp: 260
 orderMatters: true
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "Join categories -> products -> order_items"
-  - "SUM(quantity * price)"
-seedSql: |
-  CREATE TABLE categories (id INT PRIMARY KEY, name VARCHAR(100));
+- Join categories c -> products p -> order_items oi
+- Compute SUM(oi.quantity * p.price) AS revenue
+- GROUP BY c.name then ORDER BY revenue DESC
+seedSql: 'CREATE TABLE categories (id INT PRIMARY KEY, name VARCHAR(100));
+
   CREATE TABLE products (id INT PRIMARY KEY, category_id INT, name VARCHAR(100), price DECIMAL(10,2));
+
   CREATE TABLE order_items (id INT PRIMARY KEY, product_id INT, quantity INT);
-  INSERT INTO categories VALUES (1, 'Hardware');
-  INSERT INTO categories VALUES (2, 'Accessories');
-  INSERT INTO products VALUES (1, 1, 'GPU', 500.00);
-  INSERT INTO products VALUES (2, 1, 'CPU', 300.00);
-  INSERT INTO products VALUES (3, 2, 'Mouse', 50.00);
+
+  INSERT INTO categories VALUES (1, ''Hardware'');
+
+  INSERT INTO categories VALUES (2, ''Accessories'');
+
+  INSERT INTO products VALUES (1, 1, ''GPU'', 500.00);
+
+  INSERT INTO products VALUES (2, 1, ''CPU'', 300.00);
+
+  INSERT INTO products VALUES (3, 2, ''Mouse'', 50.00);
+
   INSERT INTO order_items VALUES (1, 1, 2);
+
   INSERT INTO order_items VALUES (2, 2, 1);
+
   INSERT INTO order_items VALUES (3, 3, 5);
-expectedQuery: "SELECT c.name, SUM(oi.quantity * p.price) AS revenue FROM categories c JOIN products p ON c.id = p.category_id JOIN order_items oi ON p.id = oi.product_id GROUP BY c.name ORDER BY revenue DESC;"
+
+  '
+expectedQuery: SELECT c.name, SUM(oi.quantity * p.price) AS revenue FROM categories c JOIN products p ON c.id = p.category_id JOIN order_items oi ON p.id = oi.product_id GROUP BY c.name ORDER BY revenue DESC;

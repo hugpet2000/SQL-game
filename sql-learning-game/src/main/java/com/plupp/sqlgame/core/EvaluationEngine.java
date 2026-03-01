@@ -42,14 +42,16 @@ public class EvaluationEngine {
 
         int attempts = progress.attemptsByLevel.getOrDefault(level.id, 1);
         if (matches) {
+            double multiplier = difficultyMultiplier(level.difficulty);
             int speedBonus = player.executionMs < 120 ? 35 : player.executionMs < 220 ? 20 : 0;
             int attemptBonus = attempts == 1 ? 40 : attempts <= 3 ? 20 : 0;
             int cleanSql = sql.length() < 140 ? 15 : 0;
             // TODO: Compute score contribution from EXPLAIN plan quality.
             out.planScore = 0;
 
-            out.score = 100 + speedBonus + attemptBonus + cleanSql + out.planScore;
-            out.xpAwarded = level.xp + (out.score / 5);
+            int scaledBonus = (int) Math.round((speedBonus + attemptBonus + cleanSql + out.planScore) * multiplier);
+            out.score = 100 + scaledBonus;
+            out.xpAwarded = level.xp + (out.score / 5) + difficultyXpBonus(level.difficulty);
             out.feedback = successFeedback(level, attempts);
 
             progress.totalXp += out.xpAwarded;
@@ -63,6 +65,26 @@ public class EvaluationEngine {
 
         progressStore.save(progress);
         return out;
+    }
+
+    private double difficultyMultiplier(String difficulty) {
+        if (difficulty == null) return 1.0;
+        return switch (difficulty.toLowerCase(Locale.ROOT)) {
+            case "intermediate" -> 1.10;
+            case "advanced" -> 1.25;
+            case "boss" -> 1.40;
+            default -> 1.0;
+        };
+    }
+
+    private int difficultyXpBonus(String difficulty) {
+        if (difficulty == null) return 0;
+        return switch (difficulty.toLowerCase(Locale.ROOT)) {
+            case "intermediate" -> 10;
+            case "advanced" -> 25;
+            case "boss" -> 45;
+            default -> 0;
+        };
     }
 
     private String successFeedback(LevelDefinition level, int attempts) {

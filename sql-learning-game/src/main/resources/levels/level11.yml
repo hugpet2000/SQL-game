@@ -2,25 +2,35 @@ id: level-11
 title: Customer Reach - Preserve Zero Orders
 difficulty: advanced
 objective: Use LEFT JOIN correctly so customers without orders still appear.
-objectiveCue: "Step up gently from earlier joins: keep every customer row first, then count matches."
-prompt: "Practice loop: first return all customer names with LEFT JOIN, then add COUNT(o.id) and verify zero-order customers still show as 0. Final output should be name + order_count, highest count first."
-explanationSnippet: LEFT JOIN preserves every customer row; COUNT(order.id) turns missing matches into 0.
-encouragement: "Great work—this is the core retention pattern: preserve the dimension row, then aggregate safely."
-xp: 220
+objectiveCue: 'Step up from inner joins: keep every customer row, then count matches.'
+prompt: 'Practice loop: (1) LEFT JOIN customers→orders, (2) verify all customers remain, (3) output name + order_count with highest counts first.'
+explanationSnippet: LEFT JOIN preserves dimension rows; COUNT(related_id) turns missing matches into 0.
+encouragement: Great retention pattern—preserve base entities before aggregating facts.
+xp: 290
 orderMatters: true
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "Pass 1 (structure): start FROM customers c LEFT JOIN orders o ON c.id = o.customer_id."
-  - "Pass 2 (retention check): run with just c.name and verify every customer still appears before adding COUNT."
-  - "Pass 3 (final): SELECT c.name, COUNT(o.id) AS order_count ... GROUP BY c.name ORDER BY order_count DESC, c.name ASC."
-seedSql: |
-  CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100));
+- 'Pass 1: FROM customers c LEFT JOIN orders o ON c.id = o.customer_id'
+- 'Pass 2: check that zero-order customers still appear before aggregation'
+- 'Pass 3: SELECT c.name, COUNT(o.id) AS order_count ... GROUP BY c.name ORDER BY order_count DESC, c.name ASC'
+seedSql: 'CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100));
+
   CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
-  INSERT INTO customers VALUES (1, 'Ada');
-  INSERT INTO customers VALUES (2, 'Bruno');
-  INSERT INTO customers VALUES (3, 'Cleo');
-  INSERT INTO customers VALUES (4, 'Dina');
+
+  INSERT INTO customers VALUES (1, ''Ada'');
+
+  INSERT INTO customers VALUES (2, ''Bruno'');
+
+  INSERT INTO customers VALUES (3, ''Cleo'');
+
+  INSERT INTO customers VALUES (4, ''Dina'');
+
   INSERT INTO orders VALUES (1, 1, 120.00);
+
   INSERT INTO orders VALUES (2, 1, 60.00);
+
   INSERT INTO orders VALUES (3, 3, 42.00);
-expectedQuery: "SELECT c.name, COUNT(o.id) AS order_count FROM customers c LEFT JOIN orders o ON c.id = o.customer_id GROUP BY c.name ORDER BY order_count DESC, c.name ASC;"
+
+  '
+expectedQuery: SELECT c.name, COUNT(o.id) AS order_count FROM customers c LEFT JOIN orders o ON c.id = o.customer_id GROUP BY c.name ORDER BY order_count DESC, c.name ASC;

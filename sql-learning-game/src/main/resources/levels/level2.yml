@@ -2,15 +2,25 @@ id: level-2
 title: Filter High Value Orders
 difficulty: beginner
 objective: Use WHERE and comparison operators.
-prompt: Show order_id and total for orders above 500.
-xp: 110
+objectiveCue: 'Add your first filter: keep only rows that pass a threshold.'
+prompt: Return order_id and total for orders where total is greater than 500.
+explanationSnippet: WHERE trims rows before projection, so only qualifying orders remain.
+encouragement: Nice—this is the core pattern for narrowing noisy datasets.
+xp: 100
 orderMatters: false
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "Use WHERE total > 500"
-seedSql: |
-  CREATE TABLE orders (order_id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
+- Select order_id and total from orders
+- Add WHERE total > 500
+- Do not include rows with total = 500 or below
+seedSql: 'CREATE TABLE orders (order_id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
+
   INSERT INTO orders VALUES (1001, 1, 199.99);
+
   INSERT INTO orders VALUES (1002, 1, 899.00);
+
   INSERT INTO orders VALUES (1003, 2, 550.50);
-expectedQuery: "SELECT order_id, total FROM orders WHERE total > 500;"
+
+  '
+expectedQuery: SELECT order_id, total FROM orders WHERE total > 500;

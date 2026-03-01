@@ -2,15 +2,25 @@ id: level-5
 title: Aggregation Sprint
 difficulty: intermediate
 objective: Use GROUP BY and SUM.
-prompt: Return each customer_id and total spend.
+objectiveCue: Move from rows to grouped summaries.
+prompt: Return customer_id and each customer's total spend.
+explanationSnippet: GROUP BY defines buckets; SUM(total) aggregates each bucket.
+encouragement: Nice aggregation—you converted transactions into customer-level insight.
 xp: 140
 orderMatters: false
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "SUM(total) with GROUP BY customer_id"
-seedSql: |
-  CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
+- SELECT customer_id, SUM(total) AS total_spend
+- GROUP BY customer_id
+- One output row per customer_id
+seedSql: 'CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
+
   INSERT INTO orders VALUES (1, 10, 100.00);
+
   INSERT INTO orders VALUES (2, 10, 250.00);
+
   INSERT INTO orders VALUES (3, 11, 50.00);
-expectedQuery: "SELECT customer_id, SUM(total) AS total_spend FROM orders GROUP BY customer_id;"
+
+  '
+expectedQuery: SELECT customer_id, SUM(total) AS total_spend FROM orders GROUP BY customer_id;

@@ -2,16 +2,25 @@ id: level-1
 title: First Data Pull
 difficulty: beginner
 objective: Learn SELECT and ORDER BY basics.
-prompt: Return all customer names sorted alphabetically.
-xp: 100
+objectiveCue: 'Start simple: pull one column, then sort it.'
+prompt: Return only customer names from customers, sorted A→Z.
+explanationSnippet: SELECT picks columns; ORDER BY controls output order.
+encouragement: Great start—clean projection + sorting is your SQL foundation.
+xp: 90
 orderMatters: true
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "Start with SELECT name FROM customers"
-  - "Add ORDER BY name"
-seedSql: |
-  CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100), city VARCHAR(100));
-  INSERT INTO customers VALUES (1, 'Amina', 'Stockholm');
-  INSERT INTO customers VALUES (2, 'Bashir', 'Malmö');
-  INSERT INTO customers VALUES (3, 'Clara', 'Uppsala');
-expectedQuery: "SELECT name FROM customers ORDER BY name;"
+- 'Step 1: SELECT name FROM customers'
+- 'Step 2: add ORDER BY name'
+- 'Final check: return one column named name, ascending alphabetically'
+seedSql: 'CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100), city VARCHAR(100));
+
+  INSERT INTO customers VALUES (1, ''Amina'', ''Stockholm'');
+
+  INSERT INTO customers VALUES (2, ''Bashir'', ''Malmö'');
+
+  INSERT INTO customers VALUES (3, ''Clara'', ''Uppsala'');
+
+  '
+expectedQuery: SELECT name FROM customers ORDER BY name;

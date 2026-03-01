@@ -2,15 +2,25 @@ id: level-3
 title: Multi-Condition Search
 difficulty: beginner
 objective: Combine WHERE predicates.
-prompt: Return product names where stock is below 50 and price is above 100.
-xp: 120
+objectiveCue: 'Combine filters: both conditions must be true.'
+prompt: Return product names where stock is below 50 AND price is above 100.
+explanationSnippet: 'AND creates an intersection: each row must satisfy both checks.'
+encouragement: Strong control—multi-condition filtering is a daily SQL skill.
+xp: 110
 orderMatters: false
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "Use AND between conditions"
-seedSql: |
-  CREATE TABLE products (id INT PRIMARY KEY, name VARCHAR(100), stock INT, price DECIMAL(10,2));
-  INSERT INTO products VALUES (1, 'GPU', 12, 699.00);
-  INSERT INTO products VALUES (2, 'Mouse', 200, 49.00);
-  INSERT INTO products VALUES (3, 'SSD', 35, 129.00);
-expectedQuery: "SELECT name FROM products WHERE stock < 50 AND price > 100;"
+- Start with SELECT name FROM products
+- Use WHERE stock < 50 AND price > 100
+- Check both predicates are in the same WHERE clause
+seedSql: 'CREATE TABLE products (id INT PRIMARY KEY, name VARCHAR(100), stock INT, price DECIMAL(10,2));
+
+  INSERT INTO products VALUES (1, ''GPU'', 12, 699.00);
+
+  INSERT INTO products VALUES (2, ''Mouse'', 200, 49.00);
+
+  INSERT INTO products VALUES (3, ''SSD'', 35, 129.00);
+
+  '
+expectedQuery: SELECT name FROM products WHERE stock < 50 AND price > 100;
