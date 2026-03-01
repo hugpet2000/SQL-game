@@ -45,8 +45,10 @@ public class EvaluationEngine {
             int speedBonus = player.executionMs < 120 ? 35 : player.executionMs < 220 ? 20 : 0;
             int attemptBonus = attempts == 1 ? 40 : attempts <= 3 ? 20 : 0;
             int cleanSql = sql.length() < 140 ? 15 : 0;
+            // TODO: Compute score contribution from EXPLAIN plan quality.
+            out.planScore = 0;
 
-            out.score = 100 + speedBonus + attemptBonus + cleanSql;
+            out.score = 100 + speedBonus + attemptBonus + cleanSql + out.planScore;
             out.xpAwarded = level.xp + (out.score / 5);
             out.feedback = "Mission cleared. Nice query.";
 

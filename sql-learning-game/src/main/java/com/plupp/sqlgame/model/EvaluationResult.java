@@ -9,5 +9,6 @@ public class EvaluationResult {
     public QueryResult playerResult;
     public int xpAwarded;
     public int score;
+    public int planScore;
     public List<String> unlockedAchievements = new ArrayList<>();
 }

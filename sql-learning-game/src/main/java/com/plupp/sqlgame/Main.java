@@ -45,6 +45,12 @@ public class Main {
             ));
         });
 
+        app.get("/api/levels/{id}/schema", ctx -> {
+            String id = ctx.pathParam("id");
+            LevelDefinition level = levels.byId(id).orElseThrow(() -> new IllegalArgumentException("Unknown level"));
+            ctx.json(runner.schemaForLevel(level));
+        });
+
         app.post("/api/levels/{id}/run", ctx -> {
             String id = ctx.pathParam("id");
             String sql = ctx.body();
