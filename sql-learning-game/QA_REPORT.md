@@ -66,3 +66,43 @@
 
 ## Release Gate Decision
 **PASS v1.1** — unlocked endpoint regression is resolved, compatibility route is intact, payload keys are backward compatible, and gameplay smoke remains green.
+
+## SQL Learning Game — Live-Hosting Readiness QA (subagent run)
+- Date: 2026-03-01
+- Scope: local mode, hosted auth-guard behavior (enabled/disabled), backup/export path, endpoint/gameplay smoke
+- Verdict: **FAIL (not ready for live-hosting gate)**
+
+### Checklist
+1) **Local mode still works** — ✅ PASS
+- `mvn -Psmoke test` → BUILD SUCCESS (1/1)
+- `mvn test` → BUILD SUCCESS (30 tests, 0 failures)
+- Manual run (`mvn -q exec:java`) + smoke:
+  - `GET /api/health` → `{"ok":true}`
+  - `GET /api/levels/unlocked` returns unlocked payload
+  - `POST /api/levels/level-1/run` with level-1 solution returns `success:true`
+  - `POST /api/sandbox/run` with blocked command returns safety error as expected
+
+2) **Hosted mode auth guard behavior (enabled/disabled)** — ❌ FAIL
+- No auth-guard implementation found in current code path (`App.java` routes are public; no auth middleware/header/token validation).
+- No auth enable/disable environment flags found for request guarding (only `HOST`/`PORT` in `Main.java`).
+- Result: cannot validate expected “enabled blocks unauthenticated, disabled allows” behavior because the feature is not present.
+
+3) **Backup/export path works** — ❌ FAIL
+- No backup/export API route exists in current server routes.
+- Probe checks:
+  - `GET /api/export` → HTTP 404
+  - `GET /api/backup` → HTTP 404
+- Result: backup/export path is not implemented/exposed in this build.
+
+4) **Smoke endpoints and core gameplay still functional** — ✅ PASS
+- Core API routes and level-run gameplay loop are healthy in both automated and manual smoke checks.
+
+### Live-hosting risks
+- **High:** No auth guard on public API; hosted deployment would expose gameplay/progress/leaderboard endpoints without access control.
+- **High:** No backup/export mechanism for persistence files (`data/*.json`, `data/*.ndjson`) in hosted operations.
+- **Medium:** Current test suite does not include hosted-mode security or backup/export coverage, so regressions in these areas would go undetected until runtime.
+
+### Recommendation
+- Keep local QA gate green, but block live-hosting release until:
+  1. Auth guard/middleware is implemented with explicit enable/disable config and tests for both states.
+  2. Backup/export flow (API or operational script) is implemented and verified end-to-end.
