@@ -1,0 +1,20 @@
+id: level-8
+title: Debug Broken Join
+difficulty: advanced
+objective: Repair mission query logic.
+prompt: Return username and post count for each user with at least one post.
+xp: 180
+orderMatters: false
+allowedCommands: ["SELECT"]
+hints:
+  - "Use JOIN users u and posts p"
+  - "COUNT(p.id) and GROUP BY u.username"
+seedSql: |
+  CREATE TABLE users (id INT PRIMARY KEY, username VARCHAR(100));
+  CREATE TABLE posts (id INT PRIMARY KEY, user_id INT, body VARCHAR(255));
+  INSERT INTO users VALUES (1, 'neo');
+  INSERT INTO users VALUES (2, 'trinity');
+  INSERT INTO posts VALUES (1, 1, 'Hi');
+  INSERT INTO posts VALUES (2, 1, 'Again');
+  INSERT INTO posts VALUES (3, 2, 'Yo');
+expectedQuery: "SELECT u.username, COUNT(p.id) AS post_count FROM users u JOIN posts p ON u.id = p.user_id GROUP BY u.username;"

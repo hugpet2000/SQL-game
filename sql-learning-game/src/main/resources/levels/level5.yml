@@ -1,0 +1,16 @@
+id: level-5
+title: Aggregation Sprint
+difficulty: intermediate
+objective: Use GROUP BY and SUM.
+prompt: Return each customer_id and total spend.
+xp: 140
+orderMatters: false
+allowedCommands: ["SELECT"]
+hints:
+  - "SUM(total) with GROUP BY customer_id"
+seedSql: |
+  CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
+  INSERT INTO orders VALUES (1, 10, 100.00);
+  INSERT INTO orders VALUES (2, 10, 250.00);
+  INSERT INTO orders VALUES (3, 11, 50.00);
+expectedQuery: "SELECT customer_id, SUM(total) AS total_spend FROM orders GROUP BY customer_id;"

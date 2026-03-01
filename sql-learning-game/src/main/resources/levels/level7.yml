@@ -1,0 +1,16 @@
+id: level-7
+title: Subquery Strike
+difficulty: advanced
+objective: Use subquery for comparison.
+prompt: List students whose score is above the average score.
+xp: 170
+orderMatters: false
+allowedCommands: ["SELECT"]
+hints:
+  - "WHERE score > (SELECT AVG(score) FROM exams)"
+seedSql: |
+  CREATE TABLE exams (student VARCHAR(100), score INT);
+  INSERT INTO exams VALUES ('Ada', 88);
+  INSERT INTO exams VALUES ('Bex', 72);
+  INSERT INTO exams VALUES ('Cato', 94);
+expectedQuery: "SELECT student FROM exams WHERE score > (SELECT AVG(score) FROM exams);"

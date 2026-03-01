@@ -1,0 +1,16 @@
+id: level-9
+title: Inactive User Audit
+difficulty: advanced
+objective: Build correctness filter for state cleanup prep.
+prompt: Return IDs of inactive users that are not already archived.
+xp: 190
+orderMatters: false
+allowedCommands: ["SELECT"]
+hints:
+  - "Filter active = false and status <> 'archived'"
+seedSql: |
+  CREATE TABLE users (id INT PRIMARY KEY, active BOOLEAN, status VARCHAR(20));
+  INSERT INTO users VALUES (1, TRUE, 'ok');
+  INSERT INTO users VALUES (2, FALSE, 'old');
+  INSERT INTO users VALUES (3, FALSE, 'archived');
+expectedQuery: "SELECT id FROM users WHERE active = FALSE AND status <> 'archived';"

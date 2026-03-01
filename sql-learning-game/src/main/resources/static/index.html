@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SQL Learning Game</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: #111827; color: #f3f4f6; }
+    .app { display: grid; grid-template-columns: 300px 1fr; min-height: 100vh; }
+    .sidebar { background: #0b1220; border-right: 1px solid #1f2937; padding: 16px; }
+    .main { padding: 16px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 12px; }
+    .card { background: #111827; border: 1px solid #253046; border-radius: 10px; padding: 12px; }
+    .level { cursor: pointer; padding: 8px; border-radius: 8px; border: 1px solid transparent; margin-bottom: 6px; }
+    .level:hover, .active { border-color: #4f46e5; background: #1b2440; }
+    textarea { width: 100%; height: 180px; background: #0f172a; color: #e5e7eb; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    button { background: #4f46e5; border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+    button.secondary { background: #334155; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border: 1px solid #334155; padding: 6px; }
+    .muted { color: #94a3b8; font-size: 13px; }
+    .ok { color: #4ade80; }
+    .err { color: #fb7185; }
+    #schema { white-space: pre-wrap; font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <h3>SQL Learning Game</h3>
+    <div id="progress" class="muted">Loading progress...</div>
+    <hr />
+    <div id="levels"></div>
+  </aside>
+  <main class="main">
+    <section class="card">
+      <h2 id="title">Pick a mission</h2>
+      <div id="objective" class="muted"></div>
+      <p id="prompt"></p>
+      <div><button id="hintBtn" class="secondary">Hint</button> <span id="hint" class="muted"></span></div>
+    </section>
+
+    <section class="card">
+      <textarea id="sql" placeholder="Write your SQL here..."></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;">
+        <button id="runBtn">Run Query (Ctrl+Enter)</button>
+        <button id="resetBtn" class="secondary">Reset Level DB</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div id="feedback" class="muted">Ready.</div>
+      <div id="result"></div>
+    </section>
+
+    <section class="card">
+      <h4>Sandbox</h4>
+      <div class="muted">Try SQL freely (safe-mode blocks dangerous commands).</div>
+      <textarea id="sandboxSql" placeholder="CREATE TABLE demo(id INT PRIMARY KEY, name VARCHAR(50));"></textarea>
+      <button id="sandboxBtn" class="secondary">Run in Sandbox</button>
+      <div id="sandboxResult"></div>
+    </section>
+  </main>
+</div>
+<script>
+  let levels = []; let current = null; let hintIndex = 0;
+
+  async function api(url, opts={}) { return fetch(url, opts).then(r=>r.json()); }
+
+  function renderTable(target, q) {
+    if (!q || !q.columns) return target.innerHTML = '';
+    if (q.error) return target.innerHTML = `<div class='err'>${q.error}</div>`;
+    const head = '<tr>' + q.columns.map(c=>`<th>${c}</th>`).join('') + '</tr>';
+    const rows = q.rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
+    target.innerHTML = `<table>${head}${rows}</table>`;
+  }
+
+  async function loadProgress() {
+    const p = await api('/api/progress');
+    document.getElementById('progress').innerText = `XP: ${p.totalXp} | Player Level: ${Math.max(1, Math.floor(p.totalXp/250)+1)}\nCompleted: ${p.completedLevels.length}`;
+  }
+
+  async function loadLevels() {
+    levels = await api('/api/levels');
+    const wrap = document.getElementById('levels');
+    wrap.innerHTML = '';
+    levels.forEach(l => {
+      const div = document.createElement('div');
+      div.className = 'level';
+      div.textContent = `${l.id} · ${l.title} (${l.difficulty})`;
+      div.onclick = () => pickLevel(l.id);
+      div.id = `level-${l.id}`;
+      wrap.appendChild(div);
+    });
+    if (levels[0]) pickLevel(levels[0].id);
+  }
+
+  async function pickLevel(id) {
+    current = await api('/api/levels/' + id);
+    hintIndex = 0;
+    document.querySelectorAll('.level').forEach(e=>e.classList.remove('active'));
+    document.getElementById('level-' + id).classList.add('active');
+    title.innerText = `${current.id}: ${current.title}`;
+    objective.innerText = current.objective;
+    prompt.innerText = current.prompt;
+    hint.innerText = '';
+    sql.value = '-- write your query here';
+    feedback.innerHTML = `<span class='muted'>Allowed: ${current.allowedCommands.join(', ')}</span>`;
+    result.innerHTML = '';
+  }
+
+  runBtn.onclick = async () => {
+    if (!current) return;
+    const out = await api(`/api/levels/${current.id}/run`, { method:'POST', body: sql.value });
+    feedback.innerHTML = out.success
+      ? `<div class='ok'>${out.feedback} (+${out.xpAwarded} XP, score ${out.score})</div><div>${(out.unlockedAchievements||[]).join(', ')}</div>`
+      : `<div class='err'>${out.feedback}</div>`;
+    renderTable(result, out.playerResult);
+    await loadProgress();
+  };
+
+  resetBtn.onclick = async () => {
+    if (!current) return;
+    await api(`/api/levels/${current.id}/reset`, { method: 'POST' });
+    feedback.innerHTML = "<span class='muted'>Level database reset.</span>";
+  };
+
+  hintBtn.onclick = () => {
+    if (!current || !current.hints?.length) return;
+    hint.innerText = current.hints[Math.min(hintIndex, current.hints.length-1)];
+    hintIndex++;
+  };
+
+  sandboxBtn.onclick = async () => {
+    const out = await api('/api/sandbox/run', { method:'POST', body: sandboxSql.value });
+    renderTable(document.getElementById('sandboxResult'), out);
+    if (out.error) document.getElementById('sandboxResult').innerHTML = `<div class='err'>${out.error}</div>`;
+  };
+
+  document.addEventListener('keydown', async (e) => {
+    if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); runBtn.onclick(); }
+  });
+
+  loadProgress();
+  loadLevels();
+</script>
+</body>
+</html>

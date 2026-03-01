@@ -1,0 +1,18 @@
+id: level-4
+title: First JOIN
+difficulty: intermediate
+objective: Join customers and orders.
+prompt: Return customer name and order total for every order.
+xp: 130
+orderMatters: false
+allowedCommands: ["SELECT"]
+hints:
+  - "JOIN customers c ON c.id = o.customer_id"
+seedSql: |
+  CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100));
+  CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
+  INSERT INTO customers VALUES (1, 'Amina');
+  INSERT INTO customers VALUES (2, 'Bashir');
+  INSERT INTO orders VALUES (11, 1, 120.00);
+  INSERT INTO orders VALUES (12, 2, 330.00);
+expectedQuery: "SELECT c.name, o.total FROM customers c JOIN orders o ON c.id = o.customer_id;"
