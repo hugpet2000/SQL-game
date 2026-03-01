@@ -7,6 +7,26 @@ Success means: external testers can sign in, run core SQL exercises, and we can 
 
 ---
 
+## Sprint 2 Focus (Live-hosting readiness)
+**Primary deliverables:**
+- **Export endpoint** for learner progress/data (controlled + secured).
+- **Auth mode tests** that validate all supported auth configurations.
+- **Hosted UX polish** for first-impression quality on the public URL.
+
+**Sprint 2 acceptance criteria**
+- [ ] Export endpoint exists, is authenticated, and returns correct scoped data (per-user or admin-only, as intended).
+- [ ] Export endpoint includes rate limiting and audit logging (requester + timestamp).
+- [ ] Auth mode tests cover all supported modes (e.g., email+password, magic link, admin-only) and pass in CI.
+- [ ] Hosted UX polish checklist complete (loading states, error banners, empty states, mobile nav basics, copy clarity).
+- [ ] Public URL smoke test: new tester can sign in → complete lesson → export own data without guidance.
+
+**Sprint 2 risks / watchouts**
+- **Data exposure risk:** export endpoint could leak other users’ data if scope enforcement is flawed.
+- **Auth drift risk:** staging vs prod auth config mismatch breaks login at launch.
+- **UX regression risk:** polish changes may introduce layout breaks on smaller screens.
+
+---
+
 ## Phase Plan (Dev → Staging → Prod-lite)
 
 ### 1) Dev (local + preview)
@@ -15,13 +35,16 @@ Success means: external testers can sign in, run core SQL exercises, and we can 
 - Environment: local Docker/dev server + per-branch preview deploys.
 - Data: synthetic seed data only.
 - Auth: basic login flow wired (email+password or magic link), no anonymous admin paths.
+- Export endpoint: scaffolded and gated by auth; fixture data validated.
+- UX polish: layout and copy tweaks validated in preview.
 - Infra minimums:
   - `.env` for local only; no secrets in repo.
   - app-level error logging enabled.
   - DB migrations scripted and repeatable.
 - Exit criteria:
   - Core learning loop works end-to-end: login → choose lesson → run query → get feedback/progress.
-  - No blocker bugs in QA smoke tests.
+  - Export endpoint returns correct payload for current user (or admin role) in dev.
+  - Auth mode tests pass in CI.
   - Staging deploy is automated from main branch.
 
 ### 2) Staging (production-like dry run)
@@ -37,9 +60,11 @@ Success means: external testers can sign in, run core SQL exercises, and we can 
   - migration up/down tested.
   - backup + restore tested once (time-boxed drill).
   - performance sanity: app usable with at least 20 concurrent test users.
+  - export endpoint smoke-tested with staging auth configuration.
 - Exit criteria:
   - security minimums (below) are implemented and verified.
   - rollback procedure tested once successfully.
+  - hosted UX polish checklist validated on desktop + mobile.
   - acceptance checklist is green except explicitly waived items.
 
 ### 3) Prod-lite (first public test URL)
@@ -115,6 +140,7 @@ Rollback immediately if any of:
 - [ ] New tester can complete first lesson without assistance.
 - [ ] Query execution feedback is clear for success and failure cases.
 - [ ] Progress tracking persists across logout/login.
+- [ ] Export endpoint allows user to retrieve their own progress.
 
 ### Reliability
 - [ ] Uptime monitor active and alerting to at least one owner.
@@ -135,9 +161,9 @@ Rollback immediately if any of:
 ---
 
 ## Suggested Sprint Split (Rapid Iteration)
-- **Day 1–2:** auth hardening, env/secrets cleanup, baseline logs/uptime.
+- **Day 1–2:** auth mode tests + export endpoint scaffold + env/secrets cleanup.
 - **Day 3:** backups + restore drill + rollback drill.
-- **Day 4:** staging soak + bug fixes.
+- **Day 4:** hosted UX polish + staging soak + bug fixes.
 - **Day 5:** prod-lite launch to limited testers + daily review loop.
 
 This plan intentionally favors speed with clear safety rails over full enterprise maturity.

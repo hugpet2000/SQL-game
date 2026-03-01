@@ -1,69 +1,83 @@
-# SPRINT_BOARD — Sprint S-2026-03-01
+# SPRINT_BOARD — Sprint S2-2026-03-01
 
 ## Sprint Goal
-Ship **v1.1 stability hardening** while running a **small v1.2 playtest prep loop** to validate learning flow.
+Ship **live-hosting readiness** for the first public test URL with strong auth coverage, a safe export endpoint, and hosted UX polish.
 
-Focus: make core gameplay reliable and measurable before adding new systems.
+Focus: reduce launch risk while making first impressions crisp for external testers.
 
 ## Scope (Parallel Tracks)
-- **Track A (Primary): v1.1 Stability Hardening**
-  - test reliability, reset determinism, evaluator correctness, error feedback quality.
-- **Track B (Secondary): v1.2 Playtest Prep (small)**
-  - lightweight telemetry + playtest checklist to collect balancing signals.
+- **Track A (Primary): Live-hosting Readiness**
+  - export endpoint (scoped + audited), auth mode tests, hosted UX polish.
+- **Track B (Secondary): Release Safety & Ops**
+  - rollback readiness, staging smoke, guardrails for prod-lite.
 
 ## In Progress
-- Expand regression coverage around evaluator equivalence (ordering/casing/null/duplicates).
-- Harden SQL runner error taxonomy for common student mistakes.
-- Add minimal telemetry fields for playtests: attempts, solve time, max hint tier reached.
+- Define export endpoint contract + scope rules (per-user vs admin export).
+- Map auth modes and current coverage gaps (email+password, magic link, admin-only, etc.).
+- Hosted UX polish checklist (loading/error/empty states, mobile nav, copy).
 
 ## Backlog (This Sprint)
-1. **Test hardening pack**
-   - Add integration tests for run → evaluate → save cycle across representative levels.
-   - Add deterministic reset stress checks (repeated reset + same expected output).
-   - Add negative tests for forbidden statements by level rules.
-2. **Telemetry/playtest prep pack**
-   - Persist telemetry events locally (no external analytics dependency).
-   - Define small internal playtest protocol (sample size, script, capture template).
-   - Add one balancing review pass based on collected telemetry.
-3. **Learning-flow validation (repetition-first)**
-   - Verify 5-level wave pacing uses repeat-then-slightly-harder progression.
-   - Ensure hints escalate consistently and reinforce previous concepts.
+1. **Export endpoint pack**
+   - Build authenticated export endpoint with strict scope enforcement.
+   - Add rate limiting + audit logs (requester, timestamp, response size).
+   - Add tests for export payload correctness and access control.
+2. **Auth mode test pack**
+   - Add integration tests per supported auth mode (including failure cases).
+   - Ensure staging/prod config parity checks are automated.
+   - Verify session cookie/security flags in hosted environment.
+3. **Hosted UX polish pack**
+   - Fix core layout issues on small screens.
+   - Improve loading + error states for login/lesson/runner.
+   - Tighten copy for onboarding and login messages.
+4. **Release safety pack**
+   - Staging smoke checklist run with real deploy.
+   - Rollback drill verified once.
+   - “Kill switch” for export endpoint (feature flag or config).
 
 ## Done
-- 15 playable campaign levels shipped.
-- Prompt/hint polish and XP rebalance completed.
-- Core evaluator/runner tests passing.
-- Roadmap aligned to v1.1 stability then v1.2 learning-quality tuning.
+- Sprint plan aligned to live-hosting readiness goals.
+- Risk/acceptance criteria defined for launch gating.
 
 ## Explicit Acceptance Criteria (Sprint Exit)
-### A) Test Hardening
-- [ ] `mvn test` passes consistently with no flaky failures across **3 consecutive local runs**.
-- [ ] Evaluator tests cover: order-insensitive equivalence, case normalization, null handling, duplicate rows.
-- [ ] Reset determinism verified by automated test: repeated reset returns identical schema + seed state.
-- [ ] Forbidden SQL enforcement verified for restricted levels with clear learner-facing messages.
+### A) Export Endpoint
+- [ ] Endpoint is authenticated and **scoped** (user only or admin-only per spec).
+- [ ] Access control tests verify no cross-user data leakage.
+- [ ] Rate limiting enabled and audit log entries captured per request.
+- [ ] Export payload includes expected fields and matches schema contract.
 
-### B) Telemetry + Playtest Prep
-- [ ] Telemetry captures at minimum per attempt: `levelId`, `attemptIndex`, `elapsedMs`, `hintTierUsed`, `outcome`.
-- [ ] Telemetry is local/offline-first and does not block gameplay if write fails.
-- [ ] A lightweight playtest script exists (objective, steps, success/failure logging template).
-- [ ] At least one mini-playtest batch is runnable end-to-end using current build + telemetry.
+### B) Auth Mode Tests
+- [ ] Each supported auth mode has integration test coverage.
+- [ ] Failure cases are covered (bad token, expired link, wrong password).
+- [ ] Staging and prod-like configs are validated before release.
+- [ ] Session cookie flags verified in hosted environment.
+
+### C) Hosted UX Polish
+- [ ] Login + lesson flow has clear loading/error/empty states.
+- [ ] Mobile layout passes quick check on common breakpoints.
+- [ ] Copy is concise and user-facing error messages are helpful.
+- [ ] Public URL smoke test passes end-to-end without assistance.
+
+### D) Release Safety
+- [ ] Staging smoke checklist completed after a fresh deploy.
+- [ ] Rollback drill performed once and documented.
+- [ ] Export endpoint can be disabled quickly (feature flag/config).
 
 ## Risks / Watchouts
-- **Scope creep risk:** adding admin dashboards/reporting now would delay stability goals.
-- **Signal quality risk:** telemetry without a consistent playtest script can produce noisy balancing data.
-- **Overfitting risk:** tuning to tiny samples may hurt broader learner progression.
-- **Regression risk:** evaluator changes can silently break equivalent-query acceptance.
+- **Data exposure risk:** export endpoint scope bugs could leak other users’ data.
+- **Auth drift risk:** config mismatch between staging and prod breaks login.
+- **UX regression risk:** polish changes introduce layout issues on small screens.
+- **Schedule risk:** adding analytics/reporting now would delay launch readiness.
 
 ## Scope Guardrails (Enforced)
 1. **No new major systems this sprint.**
-   - No teacher/admin feature track (deferred to **v1.4**).
+   - No teacher/admin feature track (deferred to **v1.4+**).
    - No multiplayer/online leaderboard/major UI rewrites.
-2. **Prioritize reliability over expansion.**
-   - Fix, test, instrument, then tune.
-3. **Repetition-first pedagogy is non-negotiable.**
-   - Slight difficulty increases in **5-level waves**, not abrupt jumps.
-4. **Playtest scope stays small.**
-   - Minimal telemetry schema and lightweight protocol only.
+2. **Launch readiness over expansion.**
+   - Ship export + auth tests + polish before any new content.
+3. **Safety gates required.**
+   - Export endpoint must be gated + audited before public URL.
+4. **Keep scope small.**
+   - Avoid new analytics dashboards or external integrations.
 
 ## Deferred / Out of Scope
 - Teacher/admin tooling and classroom reporting (**v1.4+**).
@@ -74,4 +88,4 @@ Focus: make core gameplay reliable and measurable before adding new systems.
 - Board is current and reflects active work.
 - Acceptance criteria are testable and measurable.
 - Guardrails are explicit and referenced in planning/review.
-- Team can demonstrate hardening outcomes + a runnable playtest prep flow.
+- Team can demonstrate export endpoint, auth test suite, and hosted UX polish outcomes.
