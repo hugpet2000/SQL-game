@@ -34,6 +34,20 @@ public class App {
                 "xp", l.xp
         )).toList()));
 
+        app.get("/api/levels/unlocked", ctx -> {
+            ProgressState progress = progressStore.load();
+            List<LevelDefinition> allLevels = levels.list();
+            List<String> unlocked = unlockService.unlockedLevels(allLevels, progress).stream().map(l -> l.id).toList();
+            ctx.json(unlockedPayload(unlocked));
+        });
+
+        app.get("/api/unlocked-levels", ctx -> {
+            ProgressState progress = progressStore.load();
+            List<LevelDefinition> allLevels = levels.list();
+            List<String> unlocked = unlockService.unlockedLevels(allLevels, progress).stream().map(l -> l.id).toList();
+            ctx.json(unlockedPayload(unlocked));
+        });
+
         app.get("/api/levels/{id}", ctx -> {
             String id = ctx.pathParam("id");
             LevelDefinition level = levels.byId(id).orElseThrow(() -> new IllegalArgumentException("Unknown level"));
@@ -77,20 +91,6 @@ public class App {
 
         app.get("/api/progress", ctx -> ctx.json(progressStore.load()));
 
-        app.get("/api/levels/unlocked", ctx -> {
-            ProgressState progress = progressStore.load();
-            List<LevelDefinition> allLevels = levels.list();
-            List<String> unlocked = unlockService.unlockedLevels(allLevels, progress).stream().map(l -> l.id).toList();
-            ctx.json(Map.of("unlockedLevels", unlocked));
-        });
-
-        app.get("/api/unlocked-levels", ctx -> {
-            ProgressState progress = progressStore.load();
-            List<LevelDefinition> allLevels = levels.list();
-            List<String> unlocked = unlockService.unlockedLevels(allLevels, progress).stream().map(l -> l.id).toList();
-            ctx.json(Map.of("unlocked", unlocked));
-        });
-
         app.post("/api/leaderboard/submit", ctx -> {
             SubmitRequest request = ctx.bodyAsClass(SubmitRequest.class);
             String nickname = sanitizeNickname(request.nickname);
@@ -122,6 +122,14 @@ public class App {
         if (trimmed.length() > 20) trimmed = trimmed.substring(0, 20);
         return trimmed.replaceAll("[^A-Za-z0-9 _.-]", "");
     }
+
+    private static Map<String, Object> unlockedPayload(List<String> unlocked) {
+        return Map.of(
+                "unlocked", unlocked,
+                "unlockedLevels", unlocked
+        );
+    }
+
 
     public static class SubmitRequest {
         public String nickname;

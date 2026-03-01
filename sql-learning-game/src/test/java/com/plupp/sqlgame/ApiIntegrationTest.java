@@ -71,8 +71,13 @@ class ApiIntegrationTest {
         assertTrue(((List<?>) progress.get("completedLevels")).contains("level-1"));
         assertTrue((Integer) progress.get("totalXp") > 0);
 
-        Map<String, Object> unlocked = getJson(baseUrl + "/api/unlocked-levels", new TypeReference<>() {});
-        assertTrue(((List<?>) unlocked.get("unlocked")).contains("level-1"));
+        Map<String, Object> unlockedCompat = getJson(baseUrl + "/api/unlocked-levels", new TypeReference<>() {});
+        assertTrue(((List<?>) unlockedCompat.get("unlocked")).contains("level-1"));
+        assertTrue(((List<?>) unlockedCompat.get("unlockedLevels")).contains("level-1"));
+
+        Map<String, Object> unlockedCanonical = getJson(baseUrl + "/api/levels/unlocked", new TypeReference<>() {});
+        assertTrue(((List<?>) unlockedCanonical.get("unlocked")).contains("level-1"));
+        assertTrue(((List<?>) unlockedCanonical.get("unlockedLevels")).contains("level-1"));
 
         Map<String, Object> resetResult = postEmpty(baseUrl + "/api/levels/level-1/reset");
         assertEquals(true, resetResult.get("ok"));
@@ -80,6 +85,27 @@ class ApiIntegrationTest {
         Map<String, Object> sandbox = postSql(baseUrl + "/api/sandbox/run", "SELECT 1 AS n;");
         assertNull(sandbox.get("error"));
         assertEquals(List.of("N"), sandbox.get("columns"));
+    }
+
+
+    @Test
+    void unlockedRoutesAreNotShadowedByLevelIdRoute() throws Exception {
+        app = App.create(
+                new LevelRepository(),
+                new SqlRunner(),
+                new ProgressStore(tempDir.resolve("progress.json")),
+                new LeaderboardStore(tempDir.resolve("leaderboard.json"))
+        ).start(0);
+
+        String baseUrl = "http://localhost:" + app.port();
+
+        Map<String, Object> canonical = getJson(baseUrl + "/api/levels/unlocked", new TypeReference<>() {});
+        assertNotNull(canonical.get("unlocked"));
+        assertNotNull(canonical.get("unlockedLevels"));
+
+        Map<String, Object> compat = getJson(baseUrl + "/api/unlocked-levels", new TypeReference<>() {});
+        assertNotNull(compat.get("unlocked"));
+        assertNotNull(compat.get("unlockedLevels"));
     }
 
     @Test
