@@ -16,7 +16,7 @@ public class LevelRepository {
     }
 
     private void loadDefaults() {
-        List<String> files = List.of("level1.yml", "level2.yml", "level3.yml", "level4.yml", "level5.yml", "level6.yml", "level7.yml", "level8.yml", "level9.yml", "level10.yml");
+        List<String> files = List.of("level1.yml", "level2.yml", "level3.yml", "level4.yml", "level5.yml", "level6.yml", "level7.yml", "level8.yml", "level9.yml", "level10.yml", "level11.yml", "level12.yml", "level13.yml", "level14.yml", "level15.yml");
         ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
         for (String file : files) {
             try (InputStream is = getClass().getClassLoader().getResourceAsStream("levels/" + file)) {

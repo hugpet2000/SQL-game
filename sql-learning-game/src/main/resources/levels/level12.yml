@@ -1,0 +1,25 @@
+id: level-12
+title: Sales Podium Without Window Functions
+difficulty: advanced
+objective: Simulate ranking in H2 using a correlated subquery.
+prompt: Return each sales rep and their rank by revenue (1 = highest). Use total revenue per rep and break ties by rep id.
+xp: 240
+orderMatters: true
+allowedCommands: ["SELECT"]
+hints:
+  - "First aggregate revenue per rep in a derived table."
+  - "Rank can be COUNT(*) + 1 of rows with greater revenue, or same revenue and lower id."
+seedSql: |
+  CREATE TABLE reps (id INT PRIMARY KEY, name VARCHAR(100));
+  CREATE TABLE deals (id INT PRIMARY KEY, rep_id INT, amount DECIMAL(10,2));
+  INSERT INTO reps VALUES (1, 'Nora');
+  INSERT INTO reps VALUES (2, 'Omar');
+  INSERT INTO reps VALUES (3, 'Pia');
+  INSERT INTO reps VALUES (4, 'Quin');
+  INSERT INTO deals VALUES (1, 1, 300.00);
+  INSERT INTO deals VALUES (2, 1, 200.00);
+  INSERT INTO deals VALUES (3, 2, 500.00);
+  INSERT INTO deals VALUES (4, 3, 150.00);
+  INSERT INTO deals VALUES (5, 3, 150.00);
+  INSERT INTO deals VALUES (6, 4, 500.00);
+expectedQuery: "SELECT t.name, t.revenue, (SELECT COUNT(*) + 1 FROM (SELECT rep_id, SUM(amount) AS revenue FROM deals GROUP BY rep_id) t2 WHERE t2.revenue > t.revenue OR (t2.revenue = t.revenue AND t2.rep_id < t.rep_id)) AS rank_pos FROM (SELECT r.id AS rep_id, r.name, SUM(d.amount) AS revenue FROM reps r JOIN deals d ON r.id = d.rep_id GROUP BY r.id, r.name) t ORDER BY rank_pos ASC, t.name ASC;"

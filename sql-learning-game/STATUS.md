@@ -2,23 +2,27 @@
 
 ## Shipped scope (current)
 - ✅ Local web app with Javalin + dark UI.
-- ✅ 10-mission SQL campaign (YAML-driven).
+- ✅ 15-mission SQL campaign (YAML-driven, includes advanced wave level11–15).
 - ✅ Real SQL execution on embedded H2.
 - ✅ Deterministic per-level reset + seeded data.
 - ✅ Query evaluation (correctness, timing, score, XP).
 - ✅ Achievements + progress persistence (`data/progress.json`).
 - ✅ Hint escalation + sandbox mode.
+- ✅ Core unit tests for evaluator + SQL runner.
 
-## What is not shipped yet
-- ❌ Automated test suite for core gameplay reliability.
+## Newly added in this wave
+- ✅ `level11`: LEFT JOIN with zero-order preservation.
+- ✅ `level12`: ranking workaround without window functions.
+- ✅ `level13`: normalization drift debugging via mismatch detection.
+- ✅ `level14`: anti-join with `NOT EXISTS`.
+- ✅ `level15`: optimization mindset (filter early, aggregate targeted slice).
+
+## Not shipped yet
+- ❌ API/integration smoke tests for full gameplay loop.
 - ❌ Telemetry/playtest instrumentation for balancing.
-- ❌ Additional mission packs (beyond 10 levels).
 - ❌ Classroom/admin reporting features.
 
 ## Next 3 actions
-1. Add core regression tests (evaluator, SQL runner, API smoke).
-2. Run quick playtest pass and rebalance first 5 mission hints/XP.
-3. Define level-authoring template to speed content expansion.
-
-## Delivery note (Telegram-style)
-MVP is playable and feature-complete for a first demo. Priority now is stability tests + learning-balance polish before expanding content.
+1. Add API + level-loading integration tests.
+2. Run playtest balancing pass for levels 11–15 (hints, XP, clarity).
+3. Draft level-authoring checklist/template for future packs.

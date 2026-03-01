@@ -1,0 +1,22 @@
+id: level-11
+title: Customer Reach - Preserve Zero Orders
+difficulty: advanced
+objective: Use LEFT JOIN correctly so customers without orders still appear.
+prompt: Return customer name and number of orders, highest count first, including customers with zero orders.
+xp: 220
+orderMatters: true
+allowedCommands: ["SELECT"]
+hints:
+  - "Start from customers and LEFT JOIN orders."
+  - "COUNT(o.id) keeps zero-order customers at 0."
+seedSql: |
+  CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100));
+  CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));
+  INSERT INTO customers VALUES (1, 'Ada');
+  INSERT INTO customers VALUES (2, 'Bruno');
+  INSERT INTO customers VALUES (3, 'Cleo');
+  INSERT INTO customers VALUES (4, 'Dina');
+  INSERT INTO orders VALUES (1, 1, 120.00);
+  INSERT INTO orders VALUES (2, 1, 60.00);
+  INSERT INTO orders VALUES (3, 3, 42.00);
+expectedQuery: "SELECT c.name, COUNT(o.id) AS order_count FROM customers c LEFT JOIN orders o ON c.id = o.customer_id GROUP BY c.name ORDER BY order_count DESC, c.name ASC;"

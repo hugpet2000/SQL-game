@@ -1,0 +1,21 @@
+id: level-13
+title: Normalization Debug - Conflicting Emails
+difficulty: advanced
+objective: Detect data drift caused by duplicated attributes across tables.
+prompt: Return user id, account email, and profile email where the two email values do not match.
+xp: 250
+orderMatters: false
+allowedCommands: ["SELECT"]
+hints:
+  - "Join accounts to profiles on account_id."
+  - "Look for rows where account email <> profile email."
+seedSql: |
+  CREATE TABLE accounts (id INT PRIMARY KEY, email VARCHAR(100));
+  CREATE TABLE profiles (id INT PRIMARY KEY, account_id INT, email VARCHAR(100), city VARCHAR(100));
+  INSERT INTO accounts VALUES (1, 'a@shop.com');
+  INSERT INTO accounts VALUES (2, 'b@shop.com');
+  INSERT INTO accounts VALUES (3, 'c@shop.com');
+  INSERT INTO profiles VALUES (1, 1, 'a@shop.com', 'Stockholm');
+  INSERT INTO profiles VALUES (2, 2, 'oops+b@shop.com', 'Gothenburg');
+  INSERT INTO profiles VALUES (3, 3, 'c@shop.com', 'Malmo');
+expectedQuery: "SELECT a.id, a.email, p.email FROM accounts a JOIN profiles p ON a.id = p.account_id WHERE a.email <> p.email;"

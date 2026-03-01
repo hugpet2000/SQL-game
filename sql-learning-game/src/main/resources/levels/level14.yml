@@ -1,0 +1,21 @@
+id: level-14
+title: Anti-Join - Products Never Sold
+difficulty: advanced
+objective: Use NOT EXISTS to find dimension rows with no fact matches.
+prompt: Return product names that have never appeared in order_items.
+xp: 260
+orderMatters: false
+allowedCommands: ["SELECT"]
+hints:
+  - "NOT EXISTS is often cleaner than LEFT JOIN ... IS NULL."
+  - "Correlate order_items by product id."
+seedSql: |
+  CREATE TABLE products (id INT PRIMARY KEY, name VARCHAR(100));
+  CREATE TABLE order_items (id INT PRIMARY KEY, product_id INT, quantity INT);
+  INSERT INTO products VALUES (1, 'Laptop');
+  INSERT INTO products VALUES (2, 'Dock');
+  INSERT INTO products VALUES (3, 'Keyboard');
+  INSERT INTO products VALUES (4, 'Webcam');
+  INSERT INTO order_items VALUES (1, 1, 1);
+  INSERT INTO order_items VALUES (2, 3, 2);
+expectedQuery: "SELECT p.name FROM products p WHERE NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.product_id = p.id);"

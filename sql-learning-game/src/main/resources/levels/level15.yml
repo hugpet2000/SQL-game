@@ -1,0 +1,20 @@
+id: level-15
+title: Optimization Mindset - Aggregate the Right Slice
+difficulty: boss
+objective: Filter early and aggregate only relevant rows before sorting.
+prompt: Return customer id and net revenue for PAID orders in February 2026, highest revenue first.
+xp: 300
+orderMatters: true
+allowedCommands: ["SELECT"]
+hints:
+  - "Filter status/date in WHERE before grouping."
+  - "SUM(amount) by customer_id, then ORDER BY net_revenue DESC."
+seedSql: |
+  CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, status VARCHAR(20), amount DECIMAL(10,2), created_on DATE);
+  INSERT INTO orders VALUES (1, 10, 'PAID', 120.00, DATE '2026-02-02');
+  INSERT INTO orders VALUES (2, 10, 'PAID', 80.00, DATE '2026-02-21');
+  INSERT INTO orders VALUES (3, 11, 'PAID', 150.00, DATE '2026-02-10');
+  INSERT INTO orders VALUES (4, 11, 'CANCELLED', 200.00, DATE '2026-02-14');
+  INSERT INTO orders VALUES (5, 12, 'PAID', 90.00, DATE '2026-01-30');
+  INSERT INTO orders VALUES (6, 12, 'PAID', 140.00, DATE '2026-02-27');
+expectedQuery: "SELECT customer_id, SUM(amount) AS net_revenue FROM orders WHERE status = 'PAID' AND created_on >= DATE '2026-02-01' AND created_on < DATE '2026-03-01' GROUP BY customer_id ORDER BY net_revenue DESC, customer_id ASC;"
