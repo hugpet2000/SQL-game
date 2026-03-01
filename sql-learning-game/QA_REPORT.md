@@ -1,5 +1,35 @@
 # QA_REPORT.md
 
+## SQL Learning Game v1.1 — QA Sprint Re-Validation (post telemetry/playtest + content polish)
+- Date: 2026-03-01
+- Scope: Stability re-check (API/routes/guardrails), telemetry/playtest non-regression, repetition-first + ramp heuristic, and scope-creep audit
+- Verdict: **PASS**
+
+### 1) v1.1 Stability: core API smoke + unlocked routes + guardrails — ✅ PASS
+- `mvn test` → **BUILD SUCCESS** (26 tests, 0 failures)
+- Live smoke (`localhost:7070`):
+  - `GET /api/health` → `{"ok":true}`
+  - `GET /api/levels/unlocked` and `GET /api/unlocked-levels` both return compatible payload with both keys: `unlocked` + `unlockedLevels`
+  - `POST /api/levels/level-1/run` with correct query returns `success:true` and valid result rows
+  - Guardrail check: `POST /api/sandbox/run` with `RUNSCRIPT ...` returns blocked error: `That command is blocked in sandbox mode for safety.`
+  - Route guardrail remains correct: `GET /api/levels/not-a-level` returns `404 {"error":"Unknown level"}`
+
+### 2) Telemetry/playtest additions non-regression (gameplay loop) — ✅ PASS
+- UI additions (session summary/playtest state variables in `index.html`) do **not** alter backend API contracts.
+- Gameplay-critical flow remains intact: level load → run query → feedback/result/progress update → unlocked refresh.
+- No crash/regression observed in API-driven loop with latest frontend/backend code.
+
+### 3) Heuristic check: repetition-first clarity + slight difficulty ramp messaging — ✅ PASS
+- Sidebar and advanced-wave copy explicitly communicates retention-first loop:
+  - `Difficulty ramps across 5 waves. Levels 11–15 are retention rounds: retry first, then unlock hints.`
+- Levels 11–15 prompts/hints consistently use explicit repetition framing (`Practice loop: (1) ... (2) ... (3) ...`).
+- Objective cues show gradual ramp (11 join retention, 12 correlated ranking, 13 cooldown data-drift check, 14 anti-join, 15 boss slice-first aggregation).
+
+### 4) Scope-creep audit (no teacher/admin, no mission count changes) — ✅ PASS
+- No teacher/admin endpoints/features found in backend routes (`App.java`) or project status docs.
+- Mission count unchanged: `src/main/resources/levels` contains **15** level files.
+- Existing roadmap still tracks classroom/admin as out-of-scope/not shipped.
+
 ## SQL Learning Game v1.1 — Final QA Re-Gate (post backend fix `e2feca89f7eaa48faf4965ee771fe4ac675d17b3`)
 - Date: 2026-03-01
 - Scope: Immediate re-gate of unlocked-route regression + gameplay smoke
