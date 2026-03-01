@@ -13,6 +13,7 @@ public class LevelDefinition {
     public boolean orderMatters = false;
     public List<String> allowedCommands = new ArrayList<>();
     public List<String> hints = new ArrayList<>();
+    public List<String> prerequisites = new ArrayList<>();
     public String seedSql;
     public String expectedQuery;
 }

