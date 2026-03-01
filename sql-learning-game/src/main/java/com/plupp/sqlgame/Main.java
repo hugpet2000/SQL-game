@@ -20,7 +20,25 @@ public class Main {
                 new TelemetryStore(Path.of("data", "telemetry.ndjson"))
         );
 
-        app.start(7070);
-        System.out.println("SQL Learning Game running on http://localhost:7070");
+        String host = envOrDefault("HOST", "localhost");
+        int port = intEnvOrDefault("PORT", 7070);
+
+        app.start(host, port);
+        System.out.println("SQL Learning Game running on http://" + host + ":" + port);
+    }
+
+    private static String envOrDefault(String key, String fallback) {
+        String value = System.getenv(key);
+        return (value == null || value.isBlank()) ? fallback : value;
+    }
+
+    private static int intEnvOrDefault(String key, int fallback) {
+        String value = System.getenv(key);
+        if (value == null || value.isBlank()) return fallback;
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 }

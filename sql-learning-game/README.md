@@ -30,6 +30,23 @@ mvn -q exec:java
 
 Open: http://localhost:7070
 
+## Hosted dev run (quick stakeholder testing)
+
+```bash
+cp .env.hosted.example .env.hosted
+# optional: edit PORT/HOST
+chmod +x scripts/run-hosted.sh
+./scripts/run-hosted.sh
+```
+
+Defaults: `HOST=0.0.0.0`, `PORT=7070`.
+
+Open from another device:
+
+```text
+http://<server-ip>:7070
+```
+
 ## Test
 
 ### Fast smoke (critical integration checks)
@@ -93,4 +110,23 @@ Optional API view (recent rows):
 
 ```bash
 curl 'http://localhost:7070/api/telemetry/recent?limit=20'
+```
+
+## Remote health/smoke checks
+
+Quick one-liner block:
+
+```bash
+BASE_URL="https://your-host-or-tunnel-url"
+curl -fsS "$BASE_URL/api/health"
+curl -fsS "$BASE_URL/api/levels" >/dev/null
+curl -fsS "$BASE_URL/api/progress" >/dev/null
+curl -fsS "$BASE_URL/" >/dev/null && echo "✅ remote smoke OK"
+```
+
+Or use the helper script:
+
+```bash
+chmod +x scripts/smoke-url.sh
+./scripts/smoke-url.sh https://your-host-or-tunnel-url
 ```
