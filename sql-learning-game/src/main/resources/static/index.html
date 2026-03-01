@@ -20,7 +20,7 @@
     table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid var(--border-soft);padding:6px}.muted{color:var(--muted);font-size:13px}.ok{color:var(--ok)}.err{color:var(--err)}
     .achievements{margin-top:10px;padding:8px;border:1px solid var(--border-soft);border-radius:8px;background:var(--bg-soft)}.achievements ul{margin:6px 0 0 18px;padding:0}.leaderboard-list{margin:8px 0 0 16px;padding:0;font-size:13px}.leaderboard-list li{margin-bottom:4px}
     .settings-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}.pill{font-size:12px;color:var(--muted);border:1px solid var(--border-soft);border-radius:999px;padding:2px 8px}.cue{margin-top:6px;color:#bfdbfe;font-size:13px}.hint-locked{color:var(--muted);font-size:12px;margin-left:6px}.explain{margin-top:8px}
-    .hosted-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-soft);font-size:12px}.hosted-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}.auth-row{display:flex;gap:8px;align-items:center;margin-top:8px}.auth-row input{flex:1}.conn-issue{margin-top:8px;padding:8px;border-radius:8px;border:1px solid var(--border-soft);background:var(--bg-soft)}
+    .hosted-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-soft);font-size:12px}.hosted-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}.hosted-badge.warn .dot{background:#facc15}.hosted-badge.err .dot{background:var(--err)}.hosted-badge.ok .dot{background:var(--ok)}.auth-row{display:flex;gap:8px;align-items:center;margin-top:8px}.auth-row input{flex:1}.conn-issue{margin-top:8px;padding:8px;border-radius:8px;border:1px solid var(--border-soft);background:var(--bg-soft)}
   </style>
 </head>
 <body>
@@ -29,11 +29,23 @@
     <div><h3 style="margin:0 0 8px 0;">SQL Learning Game</h3><div id="progress" class="muted">Loading progress...</div></div>
 
     <div id="hostedPanel" class="subtle-card" style="display:none;">
-      <div id="hostedBadge" class="hosted-badge"><span class="dot"></span><span>Hosted mode</span></div>
+      <div id="hostedBadge" class="hosted-badge"><span class="dot"></span><span id="hostedStatusLabel">Hosted mode</span></div>
       <div id="hostedMeta" class="muted" style="margin-top:6px;"></div>
+      <div class="settings-row" style="margin-top:8px;"><span class="muted">Auth mode</span><span id="authModeLabel" class="pill">Unknown</span></div>
+      <div id="authModeHelp" class="muted" style="margin-top:6px;font-size:12px;"></div>
       <div id="authPrompt" style="display:none;">
-        <div class="muted" style="margin-top:8px;">Server requires access token</div>
-        <div class="auth-row"><input id="authTokenInput" type="text" placeholder="Paste token" /><button id="authSaveBtn" class="secondary tiny">Use token</button></div>
+        <div id="tokenAuthHelp" class="muted" style="margin-top:8px;">Paste the shared access token from the host admin.</div>
+        <div id="tokenAuthRow" class="auth-row"><input id="authTokenInput" type="text" placeholder="Paste token" /><button id="authSaveBtn" class="secondary tiny">Use token</button></div>
+        <div id="basicAuthHelp" class="muted" style="margin-top:8px;display:none;">Basic auth is enabled. Use the browser login prompt or ask the host for username/password.</div>
+      </div>
+      <div id="adminTools" style="margin-top:10px;">
+        <strong>Admin tools</strong>
+        <div class="muted" style="margin-top:4px;font-size:12px;">Backup or export game data.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <button id="backupBtn" class="secondary tiny">Run backup</button>
+          <button id="exportBtn" class="secondary tiny">Export data</button>
+        </div>
+        <div id="adminStatus" class="muted" style="margin-top:6px;"></div>
       </div>
       <div id="connectionIssue" class="conn-issue" style="display:none;"></div>
       <button id="retryConnectBtn" class="secondary tiny" style="display:none;margin-top:8px;">Retry connection</button>
@@ -113,16 +125,20 @@ const IS_LOCAL_HOST=['localhost','127.0.0.1','::1'].includes(window.location.hos
 const APP_MODE={isHosted: HOSTED_PARAM==='1' || (!IS_LOCAL_HOST && HOSTED_PARAM!=='0'), authToken: sessionStorage.getItem(AUTH_TOKEN_KEY) || ''};
 const KEYWORDS=['SELECT','FROM','WHERE','JOIN','INNER','LEFT','RIGHT','FULL','ON','GROUP','BY','ORDER','HAVING','AS','DISTINCT','LIMIT','OFFSET','INSERT','INTO','VALUES','UPDATE','SET','DELETE','CREATE','TABLE','ALTER','DROP','AND','OR','NOT','IN','IS','NULL','LIKE','BETWEEN','CASE','WHEN','THEN','ELSE','END'];
 
-function setHostedConnectionIssue(message,showRetry=true){if(!APP_MODE.isHosted)return;const issue=document.getElementById('connectionIssue');const retry=document.getElementById('retryConnectBtn');issue.innerHTML=`<span class='err'>${escapeHtml(message)}</span>`;issue.style.display='block';retry.style.display=showRetry?'inline-block':'none';}
+const AUTH_MODE_LABELS={token:'Token',basic:'Basic',off:'Off',unknown:'Unknown'};let hostedAuthMode='unknown';
+function setHostedBadge(state,label){if(!APP_MODE.isHosted)return;const badge=document.getElementById('hostedBadge');if(!badge)return;badge.classList.remove('ok','warn','err');if(state) badge.classList.add(state);const labelEl=document.getElementById('hostedStatusLabel');if(labelEl&&label) labelEl.innerText=label;}
+function setHostedAuthMode(mode){if(!APP_MODE.isHosted)return;hostedAuthMode=mode||'unknown';const label=document.getElementById('authModeLabel');const help=document.getElementById('authModeHelp');const tokenHelp=document.getElementById('tokenAuthHelp');const tokenRow=document.getElementById('tokenAuthRow');const basicHelp=document.getElementById('basicAuthHelp');const labelText=AUTH_MODE_LABELS[hostedAuthMode]||'Unknown';if(label) label.innerText=labelText;if(help){if(hostedAuthMode==='basic'){help.innerText='Use HTTP Basic auth (username + password).';}else if(hostedAuthMode==='token'){help.innerText='Use the shared access token.';}else{help.innerText='';}}if(tokenHelp) tokenHelp.style.display=hostedAuthMode==='basic'?'none':'block';if(tokenRow) tokenRow.style.display=hostedAuthMode==='basic'?'none':'flex';if(basicHelp) basicHelp.style.display=hostedAuthMode==='basic'?'block':'none';}
+
+function setHostedConnectionIssue(message,showRetry=true){if(!APP_MODE.isHosted)return;setHostedBadge('err','Connection issue');const issue=document.getElementById('connectionIssue');const retry=document.getElementById('retryConnectBtn');issue.innerHTML=`<span class='err'>${escapeHtml(message)}</span>`;issue.style.display='block';retry.style.display=showRetry?'inline-block':'none';}
 function clearHostedConnectionIssue(){const issue=document.getElementById('connectionIssue');const retry=document.getElementById('retryConnectBtn');if(issue) issue.style.display='none';if(retry) retry.style.display='none';}
-function setAuthPromptVisible(visible,message=''){if(!APP_MODE.isHosted)return;const box=document.getElementById('authPrompt');box.style.display=visible?'block':'none';if(message) setHostedConnectionIssue(message,false);}
+function setAuthPromptVisible(visible,message=''){if(!APP_MODE.isHosted)return;const box=document.getElementById('authPrompt');box.style.display=visible?'block':'none';const issue=document.getElementById('connectionIssue');if(issue){if(message){issue.innerHTML=`<span class='err'>${escapeHtml(message)}</span>`;issue.style.display='block';}else if(!visible){issue.style.display='none';}}if(visible){setHostedBadge('warn','Auth required');}else{setHostedBadge('ok','Connected');}}
 
 async function api(url,opts={}){const headers={...(opts.headers||{})};if(APP_MODE.authToken&&!headers['Authorization']) headers['Authorization']=`Bearer ${APP_MODE.authToken}`;const hasBody=typeof opts.body!=='undefined';const req={...opts,headers};if(hasBody&&typeof opts.body==='object'&&!(opts.body instanceof FormData)){req.body=JSON.stringify(opts.body);req.headers['Content-Type']='application/json';}
 let res;
 try{res=await fetch(url,req);}catch(_){if(APP_MODE.isHosted) setHostedConnectionIssue('Could not reach the hosted server. Check connection and retry.');throw new Error('Connection failed');}
 let payload=null;try{payload=await res.json();}catch(_){payload=null;}
-if(res.status===401||res.status===403){if(APP_MODE.isHosted){setAuthPromptVisible(true,'Authentication required. Paste your access token to continue.');}throw new Error((payload&&payload.error)||'Authentication required');}
-if(!res.ok){const msg=(payload&&payload.error)||`Request failed (${res.status})`;if(APP_MODE.isHosted&&res.status>=500) setHostedConnectionIssue('Hosted server error. Please retry in a moment.');throw new Error(msg);}return payload;
+if(res.status===401||res.status===403){if(APP_MODE.isHosted){const authHeader=(res.headers.get('WWW-Authenticate')||'').toLowerCase();if(authHeader.includes('basic')){setHostedAuthMode('basic');}else{setHostedAuthMode('token');}setAuthPromptVisible(true,'Authentication required.');}throw new Error((payload&&payload.error)||'Authentication required');}
+if(!res.ok){const msg=(payload&&payload.error)||`Request failed (${res.status})`;if(APP_MODE.isHosted&&res.status>=500) setHostedConnectionIssue('Hosted server error. Please retry in a moment.');throw new Error(msg);}if(APP_MODE.isHosted){if(APP_MODE.authToken) setHostedAuthMode('token');setHostedBadge('ok','Connected');}return payload;
 }
 async function sendTelemetry(event){try{await api('/api/telemetry/event',{method:'POST',body:event});}catch(_){/* telemetry is best-effort */}}
 function escapeHtml(t){return (t||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
@@ -167,13 +183,17 @@ document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='Enter'){e.prevent
 function loadSettings(){try{const raw=localStorage.getItem(SETTINGS_KEY);if(!raw)return;const p=JSON.parse(raw);uiSettings={fontScale:Math.max(85,Math.min(130,Number(p.fontScale)||100)),highContrast:!!p.highContrast};}catch(_){uiSettings={fontScale:100,highContrast:false};}}
 function saveSettings(){localStorage.setItem(SETTINGS_KEY,JSON.stringify(uiSettings));}
 function applySettings(){document.documentElement.style.fontSize=`${uiSettings.fontScale}%`;document.documentElement.classList.toggle('hc',uiSettings.highContrast);document.getElementById('fontLabel').innerText=`${uiSettings.fontScale}%`;document.getElementById('contrastBtn').innerText=uiSettings.highContrast?'On':'Off';}
-function applyHostedUi(){const panel=document.getElementById('hostedPanel');if(!APP_MODE.isHosted){panel.style.display='none';return;}panel.style.display='block';document.getElementById('hostedMeta').innerText=`Connected to ${window.location.host}`;const input=document.getElementById('authTokenInput');input.value=APP_MODE.authToken||'';setAuthPromptVisible(false);}
-function saveAuthTokenFromInput(){const token=(document.getElementById('authTokenInput').value||'').trim();APP_MODE.authToken=token;sessionStorage.setItem(AUTH_TOKEN_KEY,token);setAuthPromptVisible(false);clearHostedConnectionIssue();initializeApp();}
-async function initializeApp(){try{await loadPlayer();document.getElementById('profileStatus').innerHTML='';clearHostedConnectionIssue();setAuthPromptVisible(false);await loadLeaderboard();await loadLevels();}catch(e){if(!APP_MODE.isHosted){document.getElementById('profileStatus').innerHTML="<span class='err'>Failed to load local profile.</span>";return;}setHostedConnectionIssue(e.message||'Could not initialize hosted session.');document.getElementById('feedback').innerHTML=`<span class='err'>${escapeHtml(e.message||'Hosted connection failed')}</span>`;}}
+function applyHostedUi(){const panel=document.getElementById('hostedPanel');if(!APP_MODE.isHosted){panel.style.display='none';return;}panel.style.display='block';document.getElementById('hostedMeta').innerText=`Connected to ${window.location.host}`;const input=document.getElementById('authTokenInput');input.value=APP_MODE.authToken||'';setHostedAuthMode(APP_MODE.authToken?'token':hostedAuthMode);setAuthPromptVisible(false);setHostedBadge('warn','Connecting');}
+function saveAuthTokenFromInput(){const token=(document.getElementById('authTokenInput').value||'').trim();APP_MODE.authToken=token;sessionStorage.setItem(AUTH_TOKEN_KEY,token);setHostedAuthMode('token');setAuthPromptVisible(false);clearHostedConnectionIssue();initializeApp();}
+
+async function runAdminAction(endpoint,label){const status=document.getElementById('adminStatus');if(!status)return;status.innerHTML=`<span class='muted'>${label} in progress...</span>`;try{const out=await api(endpoint,{method:'POST'});clearHostedConnectionIssue();const detail=out?.path||out?.file||out?.exportPath||out?.url||out?.downloadUrl||out?.message||'';status.innerHTML=`<span class='ok'>${label} complete.</span>${detail?` <span class='muted'>${escapeHtml(detail)}</span>`:''}`;}catch(e){status.innerHTML=`<span class='err'>${label} failed: ${escapeHtml(e.message||'error')}</span>`;}}
+async function initializeApp(){try{if(APP_MODE.isHosted) setHostedBadge('warn','Connecting');await loadPlayer();document.getElementById('profileStatus').innerHTML='';clearHostedConnectionIssue();setAuthPromptVisible(false);await loadLeaderboard();await loadLevels();if(APP_MODE.isHosted) setHostedBadge('ok','Connected');}catch(e){if(!APP_MODE.isHosted){document.getElementById('profileStatus').innerHTML="<span class='err'>Failed to load local profile.</span>";return;}const message=e.message||'Could not initialize hosted session.';if(String(message).toLowerCase().includes('auth')){document.getElementById('feedback').innerHTML=`<span class='err'>${escapeHtml(message)}</span>`;return;}setHostedConnectionIssue(message);document.getElementById('feedback').innerHTML=`<span class='err'>${escapeHtml(message||'Hosted connection failed')}</span>`;}}
 document.getElementById('fontDownBtn').onclick=()=>{uiSettings.fontScale=Math.max(85,uiSettings.fontScale-5);saveSettings();applySettings();};
 document.getElementById('fontUpBtn').onclick=()=>{uiSettings.fontScale=Math.min(130,uiSettings.fontScale+5);saveSettings();applySettings();};
 document.getElementById('contrastBtn').onclick=()=>{uiSettings.highContrast=!uiSettings.highContrast;saveSettings();applySettings();};
 document.getElementById('saveProfileBtn').onclick=savePlayerNickname;
+document.getElementById('backupBtn').onclick=()=>runAdminAction('/api/admin/backup','Backup');
+document.getElementById('exportBtn').onclick=()=>runAdminAction('/api/admin/export','Export');
 document.getElementById('authSaveBtn').onclick=saveAuthTokenFromInput;
 document.getElementById('retryConnectBtn').onclick=initializeApp;
 
