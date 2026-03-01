@@ -6,14 +6,35 @@
   <title>SQL Learning Game</title>
   <style>
     :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
     body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: #111827; color: #f3f4f6; }
     .app { display: grid; grid-template-columns: 300px 1fr; min-height: 100vh; }
     .sidebar { background: #0b1220; border-right: 1px solid #1f2937; padding: 16px; }
     .main { padding: 16px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 12px; }
     .card { background: #111827; border: 1px solid #253046; border-radius: 10px; padding: 12px; }
-    .level { cursor: pointer; padding: 8px; border-radius: 8px; border: 1px solid transparent; margin-bottom: 6px; }
+    .level { cursor: pointer; padding: 8px; border-radius: 8px; border: 1px solid transparent; margin-bottom: 6px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .level:hover, .active { border-color: #4f46e5; background: #1b2440; }
-    textarea { width: 100%; height: 180px; background: #0f172a; color: #e5e7eb; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .level-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .check { color:#4ade80; font-weight:700; }
+    .editor-layout { display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:start; }
+    .editor-box { position: relative; border: 1px solid #334155; border-radius: 8px; overflow: hidden; background: #0f172a; }
+    .editor-box pre, .editor-box textarea {
+      margin: 0; width: 100%; min-height: 220px; padding: 10px;
+      font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre; overflow: auto;
+    }
+    .editor-box pre { color: #cbd5e1; pointer-events: none; }
+    .editor-box textarea {
+      position: absolute; inset: 0; border: 0; resize: vertical;
+      background: transparent; color: transparent; caret-color: #e5e7eb;
+    }
+    .sql-kw { color: #a78bfa; font-weight: 600; }
+    .sql-fn { color: #22d3ee; }
+    .schema-wrap { max-height: 260px; overflow: auto; }
+    .schema-table { border: 1px solid #334155; border-radius: 8px; padding: 8px; margin-bottom: 8px; background:#0f172a; }
+    .schema-table h5 { margin: 0 0 6px 0; color: #93c5fd; }
+    .schema-col { display:flex; justify-content:space-between; gap:6px; font-family: ui-monospace, monospace; font-size: 12px; padding:2px 0; }
+    .nullable { color: #94a3b8; }
     button { background: #4f46e5; border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
     button.secondary { background: #334155; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -21,7 +42,8 @@
     .muted { color: #94a3b8; font-size: 13px; }
     .ok { color: #4ade80; }
     .err { color: #fb7185; }
-    #schema { white-space: pre-wrap; font-family: ui-monospace, monospace; }
+    .achievements { margin-top: 10px; padding: 8px; border:1px solid #334155; border-radius:8px; background:#0f172a; }
+    .achievements ul { margin: 6px 0 0 18px; padding: 0; }
   </style>
 </head>
 <body>
@@ -40,81 +62,210 @@
       <div><button id="hintBtn" class="secondary">Hint</button> <span id="hint" class="muted"></span></div>
     </section>
 
-    <section class="card">
-      <textarea id="sql" placeholder="Write your SQL here..."></textarea>
-      <div style="margin-top:8px;display:flex;gap:8px;">
-        <button id="runBtn">Run Query (Ctrl+Enter)</button>
-        <button id="resetBtn" class="secondary">Reset Level DB</button>
+    <section class="card editor-layout">
+      <div>
+        <div class="editor-box">
+          <pre id="sqlHighlight" aria-hidden="true"></pre>
+          <textarea id="sql" placeholder="Write your SQL here..."></textarea>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;">
+          <button id="runBtn">Run Query (Ctrl+Enter)</button>
+          <button id="resetBtn" class="secondary">Reset Level DB</button>
+        </div>
+      </div>
+      <div class="card" style="margin:0;">
+        <h4 style="margin-top:0;">Schema Viewer</h4>
+        <div id="schema" class="schema-wrap muted">Pick a level to inspect tables and columns.</div>
       </div>
     </section>
 
     <section class="card">
       <div id="feedback" class="muted">Ready.</div>
+      <div id="achievements" class="achievements" style="display:none;"></div>
       <div id="result"></div>
     </section>
 
     <section class="card">
       <h4>Sandbox</h4>
       <div class="muted">Try SQL freely (safe-mode blocks dangerous commands).</div>
-      <textarea id="sandboxSql" placeholder="CREATE TABLE demo(id INT PRIMARY KEY, name VARCHAR(50));"></textarea>
+      <div class="editor-box" style="margin:8px 0;">
+        <pre id="sandboxHighlight" aria-hidden="true"></pre>
+        <textarea id="sandboxSql" placeholder="CREATE TABLE demo(id INT PRIMARY KEY, name VARCHAR(50));"></textarea>
+      </div>
       <button id="sandboxBtn" class="secondary">Run in Sandbox</button>
       <div id="sandboxResult"></div>
     </section>
   </main>
 </div>
 <script>
-  let levels = []; let current = null; let hintIndex = 0;
+  let levels = [];
+  let current = null;
+  let hintIndex = 0;
+  let completedLevels = new Set();
 
-  async function api(url, opts={}) { return fetch(url, opts).then(r=>r.json()); }
+  const KEYWORDS = [
+    'SELECT','FROM','WHERE','JOIN','INNER','LEFT','RIGHT','FULL','ON','GROUP','BY','ORDER','HAVING',
+    'AS','DISTINCT','LIMIT','OFFSET','INSERT','INTO','VALUES','UPDATE','SET','DELETE','CREATE','TABLE',
+    'ALTER','DROP','AND','OR','NOT','IN','IS','NULL','LIKE','BETWEEN','CASE','WHEN','THEN','ELSE','END'
+  ];
+
+  async function api(url, opts = {}) {
+    return fetch(url, opts).then(r => r.json());
+  }
+
+  function escapeHtml(text) {
+    return text
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+  }
+
+  function highlightSql(sqlText) {
+    let html = escapeHtml(sqlText || '');
+    html = html.replace(/\b(count|sum|avg|min|max|coalesce|substring|lower|upper)\s*\(/gi, '<span class="sql-fn">$1</span>(');
+    const kwRegex = new RegExp(`\\b(${KEYWORDS.join('|')})\\b`, 'gi');
+    html = html.replace(kwRegex, '<span class="sql-kw">$1</span>');
+    return html + '\n';
+  }
+
+  function bindEditor(textareaId, highlightId) {
+    const textarea = document.getElementById(textareaId);
+    const highlight = document.getElementById(highlightId);
+
+    const sync = () => {
+      highlight.innerHTML = highlightSql(textarea.value);
+      highlight.scrollTop = textarea.scrollTop;
+      highlight.scrollLeft = textarea.scrollLeft;
+    };
+
+    textarea.addEventListener('input', sync);
+    textarea.addEventListener('scroll', () => {
+      highlight.scrollTop = textarea.scrollTop;
+      highlight.scrollLeft = textarea.scrollLeft;
+    });
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        textarea.value = textarea.value.slice(0, start) + '  ' + textarea.value.slice(end);
+        textarea.selectionStart = textarea.selectionEnd = start + 2;
+        sync();
+      }
+    });
+
+    sync();
+    return { textarea, sync };
+  }
+
+  const sqlEditor = bindEditor('sql', 'sqlHighlight');
+  const sandboxEditor = bindEditor('sandboxSql', 'sandboxHighlight');
 
   function renderTable(target, q) {
     if (!q || !q.columns) return target.innerHTML = '';
     if (q.error) return target.innerHTML = `<div class='err'>${q.error}</div>`;
-    const head = '<tr>' + q.columns.map(c=>`<th>${c}</th>`).join('') + '</tr>';
-    const rows = q.rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
+    const head = '<tr>' + q.columns.map(c => `<th>${c}</th>`).join('') + '</tr>';
+    const rows = q.rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('');
     target.innerHTML = `<table>${head}${rows}</table>`;
   }
 
-  async function loadProgress() {
-    const p = await api('/api/progress');
-    document.getElementById('progress').innerText = `XP: ${p.totalXp} | Player Level: ${Math.max(1, Math.floor(p.totalXp/250)+1)}\nCompleted: ${p.completedLevels.length}`;
-  }
-
-  async function loadLevels() {
-    levels = await api('/api/levels');
+  function renderLevels() {
     const wrap = document.getElementById('levels');
     wrap.innerHTML = '';
     levels.forEach(l => {
       const div = document.createElement('div');
       div.className = 'level';
-      div.textContent = `${l.id} · ${l.title} (${l.difficulty})`;
       div.onclick = () => pickLevel(l.id);
       div.id = `level-${l.id}`;
+      div.innerHTML = `
+        <span class="level-main">${l.id} · ${l.title} (${l.difficulty})</span>
+        <span class="check">${completedLevels.has(l.id) ? '✓' : ''}</span>
+      `;
       wrap.appendChild(div);
     });
+  }
+
+  async function loadProgress() {
+    const p = await api('/api/progress');
+    completedLevels = new Set(p.completedLevels || []);
+    document.getElementById('progress').innerText = `XP: ${p.totalXp} | Player Level: ${Math.max(1, Math.floor(p.totalXp/250)+1)}\nCompleted: ${completedLevels.size}`;
+    renderLevels();
+    if (current) {
+      const active = document.getElementById(`level-${current.id}`);
+      if (active) active.classList.add('active');
+    }
+  }
+
+  async function loadLevels() {
+    levels = await api('/api/levels');
+    renderLevels();
+    await loadProgress();
     if (levels[0]) pickLevel(levels[0].id);
+  }
+
+  async function loadSchema(levelId) {
+    const schema = document.getElementById('schema');
+    schema.innerHTML = '<span class="muted">Loading schema...</span>';
+    try {
+      const out = await api(`/api/levels//schema`);
+      const tables = Array.isArray(out) ? out : (out.tables || []);
+      if (!tables.length) {
+        schema.innerHTML = '<span class="muted">No schema objects found.</span>';
+        return;
+      }
+      schema.innerHTML = tables.map(t => `
+        <div class="schema-table">
+          <h5>${t.name}</h5>
+          ${(t.columns || []).map(c => `
+            <div class="schema-col">
+              <span>${c.name}</span>
+              <span class="nullable">${c.type}${c.nullable === 'YES' ? '' : ' · NOT NULL'}</span>
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+    } catch {
+      schema.innerHTML = '<span class="err">Failed to load schema.</span>';
+    }
   }
 
   async function pickLevel(id) {
     current = await api('/api/levels/' + id);
     hintIndex = 0;
-    document.querySelectorAll('.level').forEach(e=>e.classList.remove('active'));
-    document.getElementById('level-' + id).classList.add('active');
+    document.querySelectorAll('.level').forEach(e => e.classList.remove('active'));
+    document.getElementById('level-' + id)?.classList.add('active');
     title.innerText = `${current.id}: ${current.title}`;
     objective.innerText = current.objective;
     prompt.innerText = current.prompt;
     hint.innerText = '';
-    sql.value = '-- write your query here';
+    sqlEditor.textarea.value = '-- write your query here';
+    sqlEditor.sync();
     feedback.innerHTML = `<span class='muted'>Allowed: ${current.allowedCommands.join(', ')}</span>`;
     result.innerHTML = '';
+    achievements.style.display = 'none';
+    achievements.innerHTML = '';
+    await loadSchema(id);
   }
 
   runBtn.onclick = async () => {
     if (!current) return;
-    const out = await api(`/api/levels/${current.id}/run`, { method:'POST', body: sql.value });
+    const out = await api(`/api/levels/${current.id}/run`, { method:'POST', body: sqlEditor.textarea.value });
     feedback.innerHTML = out.success
-      ? `<div class='ok'>${out.feedback} (+${out.xpAwarded} XP, score ${out.score})</div><div>${(out.unlockedAchievements||[]).join(', ')}</div>`
+      ? `<div class='ok'>${out.feedback} (+${out.xpAwarded} XP, score ${out.score})</div>`
       : `<div class='err'>${out.feedback}</div>`;
+
+    const unlocked = out.unlockedAchievements || [];
+    if (unlocked.length) {
+      achievements.style.display = 'block';
+      achievements.innerHTML = `
+        <strong>Achievements unlocked</strong>
+        <ul>${unlocked.map(a => `<li>${a}</li>`).join('')}</ul>
+      `;
+    } else {
+      achievements.style.display = 'none';
+      achievements.innerHTML = '';
+    }
+
     renderTable(result, out.playerResult);
     await loadProgress();
   };
@@ -123,6 +274,7 @@
     if (!current) return;
     await api(`/api/levels/${current.id}/reset`, { method: 'POST' });
     feedback.innerHTML = "<span class='muted'>Level database reset.</span>";
+    await loadSchema(current.id);
   };
 
   hintBtn.onclick = () => {
@@ -132,16 +284,21 @@
   };
 
   sandboxBtn.onclick = async () => {
-    const out = await api('/api/sandbox/run', { method:'POST', body: sandboxSql.value });
+    const out = await api('/api/sandbox/run', { method:'POST', body: sandboxEditor.textarea.value });
+    if (out.error) {
+      document.getElementById('sandboxResult').innerHTML = `<div class='err'>${out.error}</div>`;
+      return;
+    }
     renderTable(document.getElementById('sandboxResult'), out);
-    if (out.error) document.getElementById('sandboxResult').innerHTML = `<div class='err'>${out.error}</div>`;
   };
 
   document.addEventListener('keydown', async (e) => {
-    if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); runBtn.onclick(); }
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      runBtn.onclick();
+    }
   });
 
-  loadProgress();
   loadLevels();
 </script>
 </body>
