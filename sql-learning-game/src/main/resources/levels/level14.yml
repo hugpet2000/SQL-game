@@ -2,7 +2,10 @@ id: level-14
 title: Anti-Join - Products Never Sold
 difficulty: advanced
 objective: Use NOT EXISTS to find dimension rows with no fact matches.
+objectiveCue: "Ask: does any matching fact row exist for this dimension row?"
 prompt: Return product names that have never appeared in order_items.
+explanationSnippet: NOT EXISTS is a safe anti-join pattern that avoids false positives from NULL handling.
+encouragement: Solid anti-join. You isolated unsold products cleanly.
 xp: 260
 orderMatters: false
 allowedCommands: ["SELECT"]

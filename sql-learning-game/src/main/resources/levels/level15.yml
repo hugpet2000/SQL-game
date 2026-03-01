@@ -2,7 +2,10 @@ id: level-15
 title: Optimization Mindset - Aggregate the Right Slice
 difficulty: boss
 objective: Filter early and aggregate only relevant rows before sorting.
+objectiveCue: Filter status + month first, then aggregate that reduced slice.
 prompt: Return customer id and net revenue for PAID orders in February 2026, highest revenue first.
+explanationSnippet: Early filtering shrinks work before GROUP BY; ordering the aggregate result then becomes straightforward.
+encouragement: Excellent slice-first query—fast and production-minded.
 xp: 300
 orderMatters: true
 allowedCommands: ["SELECT"]

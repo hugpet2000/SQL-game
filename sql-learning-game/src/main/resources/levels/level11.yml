@@ -2,7 +2,10 @@ id: level-11
 title: Customer Reach - Preserve Zero Orders
 difficulty: advanced
 objective: Use LEFT JOIN correctly so customers without orders still appear.
+objectiveCue: Keep all customers; only orders may be missing.
 prompt: Return customer name and number of orders, highest count first, including customers with zero orders.
+explanationSnippet: LEFT JOIN preserves every customer row; COUNT(order.id) turns missing matches into 0.
+encouragement: Great work—your LEFT JOIN kept every customer visible.
 xp: 220
 orderMatters: true
 allowedCommands: ["SELECT"]

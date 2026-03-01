@@ -40,8 +40,8 @@ public class EvaluationEngine {
         boolean matches = compare(player, expected, level.orderMatters);
         out.success = matches;
 
+        int attempts = progress.attemptsByLevel.getOrDefault(level.id, 1);
         if (matches) {
-            int attempts = progress.attemptsByLevel.getOrDefault(level.id, 1);
             int speedBonus = player.executionMs < 120 ? 35 : player.executionMs < 220 ? 20 : 0;
             int attemptBonus = attempts == 1 ? 40 : attempts <= 3 ? 20 : 0;
             int cleanSql = sql.length() < 140 ? 15 : 0;
@@ -50,7 +50,7 @@ public class EvaluationEngine {
 
             out.score = 100 + speedBonus + attemptBonus + cleanSql + out.planScore;
             out.xpAwarded = level.xp + (out.score / 5);
-            out.feedback = "Mission cleared. Nice query.";
+            out.feedback = successFeedback(level, attempts);
 
             progress.totalXp += out.xpAwarded;
             progress.completedLevels.add(level.id);
@@ -58,11 +58,25 @@ public class EvaluationEngine {
 
             unlock(progress, out, level.id, attempts, player.executionMs);
         } else {
-            out.feedback = "Result mismatch: query ran, but output doesn't match mission target.";
+            out.feedback = mismatchFeedback(attempts);
         }
 
         progressStore.save(progress);
         return out;
+    }
+
+    private String successFeedback(LevelDefinition level, int attempts) {
+        if (level.encouragement != null && !level.encouragement.isBlank()) {
+            return level.encouragement;
+        }
+        if (attempts == 1) return "Great solve. First-try clear.";
+        if (attempts <= 3) return "Nice recovery. Mission cleared.";
+        return "You stuck with it and solved it. Strong finish.";
+    }
+
+    private String mismatchFeedback(int attempts) {
+        if (attempts <= 2) return "Close. Query runs, but result shape/content is off.";
+        return "Still close. Re-check joins, filters, and expected columns/order.";
     }
 
     private void unlock(ProgressState progress, EvaluationResult out, String levelId, int attempts, long timeMs) {

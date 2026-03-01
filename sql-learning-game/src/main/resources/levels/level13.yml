@@ -2,7 +2,10 @@ id: level-13
 title: Normalization Debug - Conflicting Emails
 difficulty: advanced
 objective: Detect data drift caused by duplicated attributes across tables.
+objectiveCue: Compare the same business attribute across two tables.
 prompt: Return user id, account email, and profile email where the two email values do not match.
+explanationSnippet: A direct inequality check after JOIN reveals drift where duplicated attributes diverge.
+encouragement: Sharp eye—you caught the normalization drift quickly.
 xp: 250
 orderMatters: false
 allowedCommands: ["SELECT"]

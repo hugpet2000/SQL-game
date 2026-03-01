@@ -8,6 +8,9 @@ public class LevelDefinition {
     public String title;
     public String objective;
     public String prompt;
+    public String objectiveCue;
+    public String explanationSnippet;
+    public String encouragement;
     public String difficulty;
     public int xp = 100;
     public boolean orderMatters = false;

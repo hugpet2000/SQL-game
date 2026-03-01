@@ -26,3 +26,10 @@
 1. Add API + level-loading integration tests.
 2. Run playtest balancing pass for levels 11–15 (hints, XP, clarity).
 3. Draft level-authoring checklist/template for future packs.
+
+## Retention UX polish (v1.2 pass)
+- ✅ Advanced levels (11–15) now include `objectiveCue` for faster objective parsing.
+- ✅ Added lightweight `explanationSnippet` + `encouragement` hooks in level model/API.
+- ✅ Frontend shows a concise “Why this works” snippet when present.
+- ✅ Hint timing polish: advanced hints unlock after first run, auto-nudge appears after repeated misses.
+- ✅ Feedback copy tuned for concise encouragement on wins + clearer mismatch guidance.

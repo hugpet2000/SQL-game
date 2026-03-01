@@ -2,7 +2,10 @@ id: level-12
 title: Sales Podium Without Window Functions
 difficulty: advanced
 objective: Simulate ranking in H2 using a correlated subquery.
+objectiveCue: Build totals first, then rank by comparing each row to peers.
 prompt: Return each sales rep and their rank by revenue (1 = highest). Use total revenue per rep and break ties by rep id.
+explanationSnippet: Create one revenue row per rep, then correlated COUNT gives a deterministic rank without window functions.
+encouragement: Nice—clean manual ranking logic under constraints.
 xp: 240
 orderMatters: true
 allowedCommands: ["SELECT"]

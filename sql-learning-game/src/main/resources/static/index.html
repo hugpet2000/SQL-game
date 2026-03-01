@@ -91,6 +91,9 @@
     .leaderboard-list li { margin-bottom: 4px; }
     .settings-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
     .pill { font-size: 12px; color: var(--muted); border:1px solid var(--border-soft); border-radius: 999px; padding:2px 8px; }
+    .cue { margin-top: 6px; color: #bfdbfe; font-size: 13px; }
+    .hint-locked { color: var(--muted); font-size: 12px; margin-left: 6px; }
+    .explain { margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -132,8 +135,14 @@
     <section class="card">
       <h2 id="title">Pick a mission</h2>
       <div id="objective" class="muted"></div>
+      <div id="objectiveCue" class="cue"></div>
       <p id="prompt"></p>
-      <div><button id="hintBtn" class="secondary">Hint</button> <span id="hint" class="muted"></span></div>
+      <div>
+        <button id="hintBtn" class="secondary">Hint</button>
+        <span id="hintLock" class="hint-locked"></span>
+        <span id="hint" class="muted"></span>
+      </div>
+      <div id="explanation" class="subtle-card explain" style="display:none;"></div>
     </section>
 
     <section class="card editor-layout">
@@ -189,6 +198,8 @@
   let completedLevels = new Set();
   let unlockedLevels = new Set();
   let pendingScoreSubmission = null;
+  const attemptsByLevel = {};
+  let currentAttempts = 0;
 
   const SETTINGS_KEY = 'sqlgame_ui_settings_v1';
   let uiSettings = { fontScale: 100, highContrast: false };
@@ -390,15 +401,43 @@
     meta.innerText = `${pendingScoreSubmission.levelId} · score ${pendingScoreSubmission.score}`;
   }
 
+  function isAdvancedLevel(level) {
+    return level?.id === 'level-11' || level?.id === 'level-12' || level?.id === 'level-13' || level?.id === 'level-14' || level?.id === 'level-15';
+  }
+
+  function updateHintState() {
+    const lock = document.getElementById('hintLock');
+    const btn = document.getElementById('hintBtn');
+    if (!current) return;
+    const gated = isAdvancedLevel(current) && currentAttempts === 0;
+    btn.disabled = gated;
+    lock.innerText = gated ? 'Run once to unlock hints' : '';
+  }
+
+  function renderExplanation() {
+    const box = document.getElementById('explanation');
+    if (!current?.explanationSnippet) {
+      box.style.display = 'none';
+      box.innerHTML = '';
+      return;
+    }
+    box.style.display = 'block';
+    box.innerHTML = '<strong>Why this works</strong><div class="muted" style="margin-top:4px;">' + escapeHtml(current.explanationSnippet) + '</div>';
+  }
+
   async function pickLevel(id) {
     current = await api('/api/levels/' + id);
     hintIndex = 0;
     document.querySelectorAll('.level').forEach(e => e.classList.remove('active'));
     document.getElementById('level-' + id)?.classList.add('active');
     document.getElementById('title').innerText = `${current.id}: ${current.title}`;
+    currentAttempts = attemptsByLevel[current.id] || 0;
     document.getElementById('objective').innerText = current.objective;
+    document.getElementById('objectiveCue').innerText = current.objectiveCue ? 'Focus cue: ' + current.objectiveCue : '';
     document.getElementById('prompt').innerText = current.prompt;
     document.getElementById('hint').innerText = '';
+    renderExplanation();
+    updateHintState();
     sqlEditor.textarea.value = '-- write your query here';
     sqlEditor.sync();
     document.getElementById('feedback').innerHTML = `<span class='muted'>Allowed: ${current.allowedCommands.join(', ')}</span>`;
@@ -410,6 +449,9 @@
 
   document.getElementById('runBtn').onclick = async () => {
     if (!current) return;
+    attemptsByLevel[current.id] = (attemptsByLevel[current.id] || 0) + 1;
+    currentAttempts = attemptsByLevel[current.id];
+    updateHintState();
     const out = await api(`/api/levels/${current.id}/run`, { method:'POST', body: sqlEditor.textarea.value });
     document.getElementById('feedback').innerHTML = out.success
       ? `<div class='ok'>${escapeHtml(out.feedback)} (+${out.xpAwarded} XP, score ${out.score})</div>`
@@ -430,6 +472,9 @@
 
     if (out.success) {
       pendingScoreSubmission = { levelId: current.id, score: out.score };
+    } else if (isAdvancedLevel(current) && currentAttempts >= 2 && !document.getElementById('hint').innerText && current.hints?.length) {
+      document.getElementById('hint').innerText = 'Starter nudge: ' + current.hints[0];
+      hintIndex = 1;
     }
     updateSubmitPanel();
 
@@ -474,7 +519,10 @@
 
   document.getElementById('hintBtn').onclick = () => {
     if (!current || !current.hints?.length) return;
-    document.getElementById('hint').innerText = current.hints[Math.min(hintIndex, current.hints.length-1)];
+    if (document.getElementById('hintBtn').disabled) return;
+    const index = Math.min(hintIndex, current.hints.length - 1);
+    const label = 'Hint ' + (index + 1) + '/' + current.hints.length;
+    document.getElementById('hint').innerText = label + ': ' + current.hints[index];
     hintIndex++;
   };
 
