@@ -106,3 +106,37 @@
 - Keep local QA gate green, but block live-hosting release until:
   1. Auth guard/middleware is implemented with explicit enable/disable config and tests for both states.
   2. Backup/export flow (API or operational script) is implemented and verified end-to-end.
+
+## SQL Learning Game — Live-Hosting Sprint 2 QA (subagent run)
+- Date: 2026-03-01
+- Scope: hosted auth modes (token + basic), backup/export endpoints, local mode, smoke endpoints
+- Verdict: **FAIL (export endpoint missing)**
+
+### Checklist
+1) **Hosted mode auth token works** — ✅ PASS
+- Server: `SQLGAME_AUTH_MODE=token` (port 7081)
+- `/api/health` remains public (200)
+- `/api/progress` without auth → **401**
+- `/api/progress` with `Authorization: Bearer testtoken` → **200**
+
+2) **Hosted mode basic auth works** — ✅ PASS
+- Server: `SQLGAME_AUTH_MODE=basic` (port 7082)
+- `/api/health` public (200)
+- `/api/progress` without auth → **401**
+- `/api/progress` with `-u user1:pass1` → **200**
+
+3) **Backup/export endpoints** — ❌ FAIL
+- `POST /api/admin/backup` (auth ok) → **200**, backup dir created (e.g. `/tmp/.../backups/20260301-224043`).
+- Export endpoint not found:
+  - `GET /api/admin/export` → **404**
+  - `GET /api/export` → **404**
+- Expected: export returns JSON payload.
+
+4) **Local mode still works** — ✅ PASS
+- `mvn -Psmoke test` → **BUILD SUCCESS** (ApiSmokeTest)
+
+5) **Smoke endpoints still pass** — ✅ PASS
+- Covered by `ApiSmokeTest` (health + core run path)
+
+### Recommendation
+- Live-hosting gate remains **blocked** until an export endpoint is implemented and returns JSON.
