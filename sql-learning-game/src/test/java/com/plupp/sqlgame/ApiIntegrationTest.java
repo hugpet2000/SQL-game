@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.plupp.sqlgame.core.LevelRepository;
 import com.plupp.sqlgame.core.SqlRunner;
 import com.plupp.sqlgame.store.LeaderboardStore;
+import com.plupp.sqlgame.store.PlayerStore;
 import com.plupp.sqlgame.store.ProgressStore;
 import io.javalin.Javalin;
 import org.junit.jupiter.api.AfterEach;
@@ -45,7 +46,8 @@ class ApiIntegrationTest {
                 new LevelRepository(),
                 new SqlRunner(),
                 new ProgressStore(tempDir.resolve("progress.json")),
-                new LeaderboardStore(tempDir.resolve("leaderboard.json"))
+                new LeaderboardStore(tempDir.resolve("leaderboard.json")),
+                new PlayerStore(tempDir.resolve("player.json"))
         ).start(0);
 
         String baseUrl = "http://localhost:" + app.port();
@@ -94,7 +96,8 @@ class ApiIntegrationTest {
                 new LevelRepository(),
                 new SqlRunner(),
                 new ProgressStore(tempDir.resolve("progress.json")),
-                new LeaderboardStore(tempDir.resolve("leaderboard.json"))
+                new LeaderboardStore(tempDir.resolve("leaderboard.json")),
+                new PlayerStore(tempDir.resolve("player.json"))
         ).start(0);
 
         String baseUrl = "http://localhost:" + app.port();
@@ -114,7 +117,8 @@ class ApiIntegrationTest {
                 new LevelRepository(),
                 new SqlRunner(),
                 new ProgressStore(tempDir.resolve("progress.json")),
-                new LeaderboardStore(tempDir.resolve("leaderboard.json"))
+                new LeaderboardStore(tempDir.resolve("leaderboard.json")),
+                new PlayerStore(tempDir.resolve("player.json"))
         ).start(0);
 
         HttpResponse<String> response = client.send(
@@ -127,6 +131,48 @@ class ApiIntegrationTest {
         assertEquals(404, response.statusCode());
         Map<String, Object> payload = mapper.readValue(response.body(), new TypeReference<>() {});
         assertEquals("Unknown level", payload.get("error"));
+    }
+
+    @Test
+    void playerProfilePersistsAndLeaderboardDedupIsUsedByTopEndpoint() throws Exception {
+        app = App.create(
+                new LevelRepository(),
+                new SqlRunner(),
+                new ProgressStore(tempDir.resolve("progress.json")),
+                new LeaderboardStore(tempDir.resolve("leaderboard.json")),
+                new PlayerStore(tempDir.resolve("player.json"))
+        ).start(0);
+
+        String baseUrl = "http://localhost:" + app.port();
+
+        Map<String, Object> player1 = getJson(baseUrl + "/api/player", new TypeReference<>() {});
+        assertNotNull(player1.get("playerId"));
+        assertEquals("Anonymous", player1.get("nickname"));
+
+        Map<String, Object> updated = postJson(baseUrl + "/api/player", Map.of("nickname", "Hugo"));
+        assertEquals("Hugo", updated.get("nickname"));
+        assertEquals(player1.get("playerId"), updated.get("playerId"));
+
+        postJson(baseUrl + "/api/leaderboard/submit", Map.of("score", 100, "levelId", "level-1"));
+        postJson(baseUrl + "/api/leaderboard/submit", Map.of("score", 120, "levelId", "level-1"));
+        postJson(baseUrl + "/api/leaderboard/submit", Map.of("score", 90, "levelId", "level-1"));
+        postJson(baseUrl + "/api/leaderboard/submit", Map.of("score", 80, "levelId", "level-2"));
+
+        List<Map<String, Object>> top = getJson(baseUrl + "/api/leaderboard/top", new TypeReference<>() {});
+        assertEquals(1, top.size());
+        assertEquals(200, top.get(0).get("score"));
+
+        Map<String, Object> view = getJson(baseUrl + "/api/leaderboard/view", new TypeReference<>() {});
+        List<Map<String, Object>> globalTop = (List<Map<String, Object>>) view.get("globalTop");
+        Map<String, List<Map<String, Object>>> perLevelTop = (Map<String, List<Map<String, Object>>>) view.get("perLevelTop");
+
+        assertEquals(1, globalTop.size());
+        assertEquals("Hugo", globalTop.get(0).get("nickname"));
+        assertEquals(120, perLevelTop.get("level-1").get(0).get("score"));
+
+        Map<String, Object> playerReloaded = getJson(baseUrl + "/api/player", new TypeReference<>() {});
+        assertEquals(player1.get("playerId"), playerReloaded.get("playerId"));
+        assertEquals("Hugo", playerReloaded.get("nickname"));
     }
 
     private Map<String, Object> postSql(String url, String sql) throws IOException, InterruptedException {
@@ -145,6 +191,18 @@ class ApiIntegrationTest {
         HttpResponse<String> response = client.send(
                 HttpRequest.newBuilder(URI.create(url))
                         .POST(HttpRequest.BodyPublishers.noBody())
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        assertEquals(200, response.statusCode());
+        return mapper.readValue(response.body(), new TypeReference<>() {});
+    }
+
+    private Map<String, Object> postJson(String url, Object body) throws IOException, InterruptedException {
+        HttpResponse<String> response = client.send(
+                HttpRequest.newBuilder(URI.create(url))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                         .build(),
                 HttpResponse.BodyHandlers.ofString()
         );

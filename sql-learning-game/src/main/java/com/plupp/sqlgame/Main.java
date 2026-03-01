@@ -3,6 +3,7 @@ package com.plupp.sqlgame;
 import com.plupp.sqlgame.core.LevelRepository;
 import com.plupp.sqlgame.core.SqlRunner;
 import com.plupp.sqlgame.store.LeaderboardStore;
+import com.plupp.sqlgame.store.PlayerStore;
 import com.plupp.sqlgame.store.ProgressStore;
 
 import java.nio.file.Path;
@@ -13,7 +14,8 @@ public class Main {
                 new LevelRepository(),
                 new SqlRunner(),
                 new ProgressStore(Path.of("data", "progress.json")),
-                new LeaderboardStore(Path.of("data", "leaderboard.json"))
+                new LeaderboardStore(Path.of("data", "leaderboard.json")),
+                new PlayerStore(Path.of("data", "player.json"))
         );
 
         app.start(7070);

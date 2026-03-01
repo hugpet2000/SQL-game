@@ -6,8 +6,10 @@ import com.plupp.sqlgame.core.SqlRunner;
 import com.plupp.sqlgame.core.UnlockService;
 import com.plupp.sqlgame.model.LeaderboardEntry;
 import com.plupp.sqlgame.model.LevelDefinition;
+import com.plupp.sqlgame.model.PlayerProfile;
 import com.plupp.sqlgame.model.ProgressState;
 import com.plupp.sqlgame.store.LeaderboardStore;
+import com.plupp.sqlgame.store.PlayerStore;
 import com.plupp.sqlgame.store.ProgressStore;
 import io.javalin.Javalin;
 
@@ -16,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 public class App {
-    public static Javalin create(LevelRepository levels, SqlRunner runner, ProgressStore progressStore, LeaderboardStore leaderboardStore) {
+    public static Javalin create(LevelRepository levels, SqlRunner runner, ProgressStore progressStore, LeaderboardStore leaderboardStore, PlayerStore playerStore) {
         EvaluationEngine evaluator = new EvaluationEngine(runner, progressStore);
         UnlockService unlockService = new UnlockService();
 
@@ -25,6 +27,15 @@ public class App {
         Javalin app = Javalin.create(config -> config.staticFiles.add("static"));
 
         app.get("/api/health", ctx -> ctx.json(Map.of("ok", true)));
+
+        app.get("/api/player", ctx -> ctx.json(playerStore.loadOrCreate()));
+
+        app.post("/api/player", ctx -> {
+            PlayerRequest request = ctx.bodyAsClass(PlayerRequest.class);
+            String nickname = sanitizeNickname(request.nickname);
+            if (nickname.isBlank()) nickname = "Anonymous";
+            ctx.json(playerStore.updateNickname(nickname));
+        });
 
         app.get("/api/levels", ctx -> ctx.json(levels.list().stream().map(l -> Map.of(
                 "id", l.id,
@@ -93,22 +104,40 @@ public class App {
 
         app.post("/api/leaderboard/submit", ctx -> {
             SubmitRequest request = ctx.bodyAsClass(SubmitRequest.class);
-            String nickname = sanitizeNickname(request.nickname);
-            if (nickname.isBlank()) nickname = "Anonymous";
             if (request.score <= 0) {
                 ctx.status(400).json(Map.of("ok", false, "error", "Score must be > 0"));
                 return;
             }
 
+            PlayerProfile profile = playerStore.loadOrCreate();
+            String nickname = sanitizeNickname(request.nickname);
+            if (!nickname.isBlank() && !nickname.equals(profile.nickname)) {
+                profile = playerStore.updateNickname(nickname);
+            }
+
             String levelId = request.levelId == null || request.levelId.isBlank() ? "unknown" : request.levelId;
-            LeaderboardEntry entry = new LeaderboardEntry(nickname, request.score, levelId, System.currentTimeMillis());
-            leaderboardStore.submit(entry);
-            ctx.json(Map.of("ok", true, "entry", entry));
+            LeaderboardEntry entry = new LeaderboardEntry(
+                    profile.playerId,
+                    profile.nickname,
+                    request.score,
+                    levelId,
+                    System.currentTimeMillis()
+            );
+            LeaderboardEntry saved = leaderboardStore.submit(entry);
+            ctx.json(Map.of("ok", true, "entry", saved));
         });
 
         app.get("/api/leaderboard/top", ctx -> {
             int limit = Math.max(1, ctx.queryParamAsClass("limit", Integer.class).getOrDefault(10));
             ctx.json(leaderboardStore.top(limit));
+        });
+
+        app.get("/api/leaderboard/view", ctx -> {
+            int limit = Math.max(1, ctx.queryParamAsClass("limit", Integer.class).getOrDefault(10));
+            ctx.json(Map.of(
+                    "globalTop", leaderboardStore.globalTop(limit),
+                    "perLevelTop", leaderboardStore.perLevelTop(limit)
+            ));
         });
 
         app.exception(IllegalArgumentException.class, (e, ctx) -> ctx.status(404).json(Map.of("error", e.getMessage())));
@@ -135,5 +164,9 @@ public class App {
         public String nickname;
         public int score;
         public String levelId;
+    }
+
+    public static class PlayerRequest {
+        public String nickname;
     }
 }
