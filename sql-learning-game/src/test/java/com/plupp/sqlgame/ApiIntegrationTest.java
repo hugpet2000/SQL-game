@@ -133,6 +133,29 @@ class ApiIntegrationTest {
         assertEquals("Unknown level", payload.get("error"));
     }
 
+
+    @Test
+    void playerPostSanitizesNicknameAndReadReflectsIt() throws Exception {
+        app = App.create(
+                new LevelRepository(),
+                new SqlRunner(),
+                new ProgressStore(tempDir.resolve("progress.json")),
+                new LeaderboardStore(tempDir.resolve("leaderboard.json")),
+                new PlayerStore(tempDir.resolve("player.json"))
+        ).start(0);
+
+        String baseUrl = "http://localhost:" + app.port();
+
+        Map<String, Object> created = getJson(baseUrl + "/api/player", new TypeReference<>() {});
+        Map<String, Object> updated = postJson(baseUrl + "/api/player", Map.of("nickname", "  ka!rl??  "));
+
+        assertEquals(created.get("playerId"), updated.get("playerId"));
+        assertEquals("karl", updated.get("nickname"));
+
+        Map<String, Object> reloaded = getJson(baseUrl + "/api/player", new TypeReference<>() {});
+        assertEquals("karl", reloaded.get("nickname"));
+    }
+
     @Test
     void playerProfilePersistsAndLeaderboardDedupIsUsedByTopEndpoint() throws Exception {
         app = App.create(

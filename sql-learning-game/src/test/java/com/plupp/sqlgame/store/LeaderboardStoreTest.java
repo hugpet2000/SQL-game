@@ -34,6 +34,20 @@ class LeaderboardStoreTest {
         assertEquals(120, level1Top.get(0).score);
     }
 
+
+    @Test
+    void upsertWithSameScoreKeepsEarliestTimestamp() {
+        LeaderboardStore store = new LeaderboardStore(tempDir.resolve("leaderboard.json"));
+
+        store.submit(new LeaderboardEntry("p1", "alice", 120, "level-1", 3000));
+        store.submit(new LeaderboardEntry("p1", "alice", 120, "level-1", 1000));
+
+        List<LeaderboardEntry> level1Top = store.perLevelTop(10).get("level-1");
+        assertEquals(1, level1Top.size());
+        assertEquals(120, level1Top.get(0).score);
+        assertEquals(1000, level1Top.get(0).achievedAtEpochMs);
+    }
+
     @Test
     void migratesLegacyEntriesWithoutPlayerIdByNicknameFallback() {
         LeaderboardStore store = new LeaderboardStore(tempDir.resolve("leaderboard.json"));
