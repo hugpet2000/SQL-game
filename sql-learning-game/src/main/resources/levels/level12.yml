@@ -2,27 +2,41 @@ id: level-12
 title: Sales Podium Without Window Functions
 difficulty: advanced
 objective: Simulate ranking in H2 using a correlated subquery.
-objectiveCue: Build totals first, then rank by comparing each row to peers.
-prompt: Return each sales rep and their rank by revenue (1 = highest). Use total revenue per rep and break ties by rep id.
+objectiveCue: 'Slightly harder than level 11: aggregate first, then apply deterministic tie-break ranking.'
+prompt: 'Practice loop: (1) build revenue totals per rep, (2) test the totals table alone, (3) add correlated rank logic. Return rep name, revenue, and rank_pos (1 = highest), tie-break by lower rep id.'
 explanationSnippet: Create one revenue row per rep, then correlated COUNT gives a deterministic rank without window functions.
-encouragement: Nice—clean manual ranking logic under constraints.
+encouragement: "Nice progression\u2014totals-first then ranking is a reusable pattern for constrained SQL engines."
 xp: 240
 orderMatters: true
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "First aggregate revenue per rep in a derived table."
-  - "Rank can be COUNT(*) + 1 of rows with greater revenue, or same revenue and lower id."
-seedSql: |
-  CREATE TABLE reps (id INT PRIMARY KEY, name VARCHAR(100));
+- 'Pass 1 (base table): create one row per rep with SUM(amount) AS revenue.'
+- 'Pass 2 (ranking idea): rank is COUNT(*) + 1 of peer rows with greater revenue, or same revenue and lower rep_id.'
+- 'Pass 3 (final shape): wrap totals as t, correlated totals as t2, then ORDER BY rank_pos ASC, t.name ASC.'
+seedSql: 'CREATE TABLE reps (id INT PRIMARY KEY, name VARCHAR(100));
+
   CREATE TABLE deals (id INT PRIMARY KEY, rep_id INT, amount DECIMAL(10,2));
-  INSERT INTO reps VALUES (1, 'Nora');
-  INSERT INTO reps VALUES (2, 'Omar');
-  INSERT INTO reps VALUES (3, 'Pia');
-  INSERT INTO reps VALUES (4, 'Quin');
+
+  INSERT INTO reps VALUES (1, ''Nora'');
+
+  INSERT INTO reps VALUES (2, ''Omar'');
+
+  INSERT INTO reps VALUES (3, ''Pia'');
+
+  INSERT INTO reps VALUES (4, ''Quin'');
+
   INSERT INTO deals VALUES (1, 1, 300.00);
+
   INSERT INTO deals VALUES (2, 1, 200.00);
+
   INSERT INTO deals VALUES (3, 2, 500.00);
+
   INSERT INTO deals VALUES (4, 3, 150.00);
+
   INSERT INTO deals VALUES (5, 3, 150.00);
+
   INSERT INTO deals VALUES (6, 4, 500.00);
-expectedQuery: "SELECT t.name, t.revenue, (SELECT COUNT(*) + 1 FROM (SELECT rep_id, SUM(amount) AS revenue FROM deals GROUP BY rep_id) t2 WHERE t2.revenue > t.revenue OR (t2.revenue = t.revenue AND t2.rep_id < t.rep_id)) AS rank_pos FROM (SELECT r.id AS rep_id, r.name, SUM(d.amount) AS revenue FROM reps r JOIN deals d ON r.id = d.rep_id GROUP BY r.id, r.name) t ORDER BY rank_pos ASC, t.name ASC;"
+
+  '
+expectedQuery: SELECT t.name, t.revenue, (SELECT COUNT(*) + 1 FROM (SELECT rep_id, SUM(amount) AS revenue FROM deals GROUP BY rep_id) t2 WHERE t2.revenue > t.revenue OR (t2.revenue = t.revenue AND t2.rep_id < t.rep_id)) AS rank_pos FROM (SELECT r.id AS rep_id, r.name, SUM(d.amount) AS revenue FROM reps r JOIN deals d ON r.id = d.rep_id GROUP BY r.id, r.name) t ORDER BY rank_pos ASC, t.name ASC;

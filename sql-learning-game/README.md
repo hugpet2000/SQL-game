@@ -42,6 +42,14 @@ mvn test
 - `src/main/resources/levels` — data-driven level definitions
 - `src/main/resources/static` — frontend UI
 
+## v1.2 learning-quality balancing notes (levels 11–15)
+
+- Retention-first repetition loops were added to prompts: **build → verify → finalize**.
+- Hint scaffolding was deepened to 3 short passes (concept, check, near-final shape).
+- Win messaging now reinforces the reusable SQL pattern learned in each level.
+- Difficulty ramp is intentionally slight and explicit across levels 11→15.
+- Scope stayed lightweight: no new missions, content-only adjustments.
+
 ## Notes
 
 - Designed to be extensible: add more YAML levels without changing evaluator logic.

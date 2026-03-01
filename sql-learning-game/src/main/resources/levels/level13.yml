@@ -2,23 +2,33 @@ id: level-13
 title: Normalization Debug - Conflicting Emails
 difficulty: advanced
 objective: Detect data drift caused by duplicated attributes across tables.
-objectiveCue: Compare the same business attribute across two tables.
-prompt: Return user id, account email, and profile email where the two email values do not match.
+objectiveCue: 'Cooldown step after ranking: same join skill, now focused on spotting mismatches reliably.'
+prompt: "Practice loop: first join accounts\u2194profiles and inspect both emails, then add a mismatch filter. Return user id, account email, and profile email where values differ."
 explanationSnippet: A direct inequality check after JOIN reveals drift where duplicated attributes diverge.
-encouragement: Sharp eye—you caught the normalization drift quickly.
+encouragement: "Great catch\u2014this reinforces a practical data-quality loop: compare first, then isolate drift."
 xp: 250
 orderMatters: false
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "Join accounts to profiles on account_id."
-  - "Look for rows where account email <> profile email."
-seedSql: |
-  CREATE TABLE accounts (id INT PRIMARY KEY, email VARCHAR(100));
+- 'Pass 1 (visibility): JOIN accounts a to profiles p ON a.id = p.account_id and select both emails.'
+- 'Pass 2 (filter): keep only rows where a.email <> p.email.'
+- 'Pass 3 (final): return a.id, a.email, p.email (order is flexible here).'
+seedSql: 'CREATE TABLE accounts (id INT PRIMARY KEY, email VARCHAR(100));
+
   CREATE TABLE profiles (id INT PRIMARY KEY, account_id INT, email VARCHAR(100), city VARCHAR(100));
-  INSERT INTO accounts VALUES (1, 'a@shop.com');
-  INSERT INTO accounts VALUES (2, 'b@shop.com');
-  INSERT INTO accounts VALUES (3, 'c@shop.com');
-  INSERT INTO profiles VALUES (1, 1, 'a@shop.com', 'Stockholm');
-  INSERT INTO profiles VALUES (2, 2, 'oops+b@shop.com', 'Gothenburg');
-  INSERT INTO profiles VALUES (3, 3, 'c@shop.com', 'Malmo');
-expectedQuery: "SELECT a.id, a.email, p.email FROM accounts a JOIN profiles p ON a.id = p.account_id WHERE a.email <> p.email;"
+
+  INSERT INTO accounts VALUES (1, ''a@shop.com'');
+
+  INSERT INTO accounts VALUES (2, ''b@shop.com'');
+
+  INSERT INTO accounts VALUES (3, ''c@shop.com'');
+
+  INSERT INTO profiles VALUES (1, 1, ''a@shop.com'', ''Stockholm'');
+
+  INSERT INTO profiles VALUES (2, 2, ''oops+b@shop.com'', ''Gothenburg'');
+
+  INSERT INTO profiles VALUES (3, 3, ''c@shop.com'', ''Malmo'');
+
+  '
+expectedQuery: SELECT a.id, a.email, p.email FROM accounts a JOIN profiles p ON a.id = p.account_id WHERE a.email <> p.email;

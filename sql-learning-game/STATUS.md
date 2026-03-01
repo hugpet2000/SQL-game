@@ -33,3 +33,10 @@
 - ✅ Frontend shows a concise “Why this works” snippet when present.
 - ✅ Hint timing polish: advanced hints unlock after first run, auto-nudge appears after repeated misses.
 - ✅ Feedback copy tuned for concise encouragement on wins + clearer mismatch guidance.
+
+## Level balancing notes (v1.2 learning-quality cycle)
+- ✅ Levels 11–15 prompts now use a short **practice loop** format (build → verify → finalize) to strengthen repetition.
+- ✅ Hints now use **3-pass scaffolding** (structure, validation, final shape) for lower-friction recovery after misses.
+- ✅ Success reinforcement now names the transferable pattern learned in each level.
+- ✅ Difficulty ramp is explicit and gentler: level 12 steps up from 11, level 13 is a brief cooldown, levels 14–15 ramp slightly.
+- ✅ No mission-count changes; this is a lightweight, content-only balancing pass.

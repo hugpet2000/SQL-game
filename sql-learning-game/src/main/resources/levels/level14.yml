@@ -2,23 +2,33 @@ id: level-14
 title: Anti-Join - Products Never Sold
 difficulty: advanced
 objective: Use NOT EXISTS to find dimension rows with no fact matches.
-objectiveCue: "Ask: does any matching fact row exist for this dimension row?"
-prompt: Return product names that have never appeared in order_items.
+objectiveCue: 'Small ramp from level 13: keep comparison mindset, but switch to anti-join existence checks.'
+prompt: 'Practice loop: list all products first, then add NOT EXISTS to remove sold ones. Return only product names that never appeared in order_items.'
 explanationSnippet: NOT EXISTS is a safe anti-join pattern that avoids false positives from NULL handling.
-encouragement: Solid anti-join. You isolated unsold products cleanly.
+encouragement: "Strong anti-join work\u2014\"no matching row exists\" is a high-value pattern for analytics and QA."
 xp: 260
 orderMatters: false
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "NOT EXISTS is often cleaner than LEFT JOIN ... IS NULL."
-  - "Correlate order_items by product id."
-seedSql: |
-  CREATE TABLE products (id INT PRIMARY KEY, name VARCHAR(100));
+- 'Pass 1 (outer table): start with products p and confirm the full product list.'
+- 'Pass 2 (anti-condition): add NOT EXISTS with a correlated subquery on oi.product_id = p.id.'
+- 'Pass 3 (final): SELECT p.name ... WHERE NOT EXISTS (...) to keep only unsold products.'
+seedSql: 'CREATE TABLE products (id INT PRIMARY KEY, name VARCHAR(100));
+
   CREATE TABLE order_items (id INT PRIMARY KEY, product_id INT, quantity INT);
-  INSERT INTO products VALUES (1, 'Laptop');
-  INSERT INTO products VALUES (2, 'Dock');
-  INSERT INTO products VALUES (3, 'Keyboard');
-  INSERT INTO products VALUES (4, 'Webcam');
+
+  INSERT INTO products VALUES (1, ''Laptop'');
+
+  INSERT INTO products VALUES (2, ''Dock'');
+
+  INSERT INTO products VALUES (3, ''Keyboard'');
+
+  INSERT INTO products VALUES (4, ''Webcam'');
+
   INSERT INTO order_items VALUES (1, 1, 1);
+
   INSERT INTO order_items VALUES (2, 3, 2);
-expectedQuery: "SELECT p.name FROM products p WHERE NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.product_id = p.id);"
+
+  '
+expectedQuery: SELECT p.name FROM products p WHERE NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.product_id = p.id);

@@ -2,16 +2,17 @@ id: level-11
 title: Customer Reach - Preserve Zero Orders
 difficulty: advanced
 objective: Use LEFT JOIN correctly so customers without orders still appear.
-objectiveCue: Keep all customers; only orders may be missing.
-prompt: Return customer name and number of orders, highest count first, including customers with zero orders.
+objectiveCue: "Step up gently from earlier joins: keep every customer row first, then count matches."
+prompt: "Practice loop: first return all customer names with LEFT JOIN, then add COUNT(o.id) and verify zero-order customers still show as 0. Final output should be name + order_count, highest count first."
 explanationSnippet: LEFT JOIN preserves every customer row; COUNT(order.id) turns missing matches into 0.
-encouragement: Great work—your LEFT JOIN kept every customer visible.
+encouragement: "Great work—this is the core retention pattern: preserve the dimension row, then aggregate safely."
 xp: 220
 orderMatters: true
 allowedCommands: ["SELECT"]
 hints:
-  - "Start from customers and LEFT JOIN orders."
-  - "COUNT(o.id) keeps zero-order customers at 0."
+  - "Pass 1 (structure): start FROM customers c LEFT JOIN orders o ON c.id = o.customer_id."
+  - "Pass 2 (retention check): run with just c.name and verify every customer still appears before adding COUNT."
+  - "Pass 3 (final): SELECT c.name, COUNT(o.id) AS order_count ... GROUP BY c.name ORDER BY order_count DESC, c.name ASC."
 seedSql: |
   CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100));
   CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, total DECIMAL(10,2));

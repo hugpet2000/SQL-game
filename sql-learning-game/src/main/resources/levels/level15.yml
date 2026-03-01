@@ -2,22 +2,31 @@ id: level-15
 title: Optimization Mindset - Aggregate the Right Slice
 difficulty: boss
 objective: Filter early and aggregate only relevant rows before sorting.
-objectiveCue: Filter status + month first, then aggregate that reduced slice.
-prompt: Return customer id and net revenue for PAID orders in February 2026, highest revenue first.
+objectiveCue: 'Final step-up, still gradual: apply prior filtering + grouping habits to a production-style slice.'
+prompt: 'Practice loop: (1) filter only PAID February 2026 rows, (2) verify slice, (3) aggregate by customer_id and sort by net_revenue desc. Return customer id and net revenue.'
 explanationSnippet: Early filtering shrinks work before GROUP BY; ordering the aggregate result then becomes straightforward.
-encouragement: Excellent slice-first query—fast and production-minded.
+encouragement: "Excellent finish\u2014slice-first aggregation is exactly the retention habit that scales to real workloads."
 xp: 300
 orderMatters: true
-allowedCommands: ["SELECT"]
+allowedCommands:
+- SELECT
 hints:
-  - "Filter status/date in WHERE before grouping."
-  - "SUM(amount) by customer_id, then ORDER BY net_revenue DESC."
-seedSql: |
-  CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, status VARCHAR(20), amount DECIMAL(10,2), created_on DATE);
-  INSERT INTO orders VALUES (1, 10, 'PAID', 120.00, DATE '2026-02-02');
-  INSERT INTO orders VALUES (2, 10, 'PAID', 80.00, DATE '2026-02-21');
-  INSERT INTO orders VALUES (3, 11, 'PAID', 150.00, DATE '2026-02-10');
-  INSERT INTO orders VALUES (4, 11, 'CANCELLED', 200.00, DATE '2026-02-14');
-  INSERT INTO orders VALUES (5, 12, 'PAID', 90.00, DATE '2026-01-30');
-  INSERT INTO orders VALUES (6, 12, 'PAID', 140.00, DATE '2026-02-27');
-expectedQuery: "SELECT customer_id, SUM(amount) AS net_revenue FROM orders WHERE status = 'PAID' AND created_on >= DATE '2026-02-01' AND created_on < DATE '2026-03-01' GROUP BY customer_id ORDER BY net_revenue DESC, customer_id ASC;"
+- 'Pass 1 (slice): WHERE status = ''PAID'' and date >= 2026-02-01 and < 2026-03-01.'
+- 'Pass 2 (aggregate): GROUP BY customer_id and SUM(amount) AS net_revenue.'
+- 'Pass 3 (final): ORDER BY net_revenue DESC, customer_id ASC for deterministic output.'
+seedSql: 'CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, status VARCHAR(20), amount DECIMAL(10,2), created_on DATE);
+
+  INSERT INTO orders VALUES (1, 10, ''PAID'', 120.00, DATE ''2026-02-02'');
+
+  INSERT INTO orders VALUES (2, 10, ''PAID'', 80.00, DATE ''2026-02-21'');
+
+  INSERT INTO orders VALUES (3, 11, ''PAID'', 150.00, DATE ''2026-02-10'');
+
+  INSERT INTO orders VALUES (4, 11, ''CANCELLED'', 200.00, DATE ''2026-02-14'');
+
+  INSERT INTO orders VALUES (5, 12, ''PAID'', 90.00, DATE ''2026-01-30'');
+
+  INSERT INTO orders VALUES (6, 12, ''PAID'', 140.00, DATE ''2026-02-27'');
+
+  '
+expectedQuery: SELECT customer_id, SUM(amount) AS net_revenue FROM orders WHERE status = 'PAID' AND created_on >= DATE '2026-02-01' AND created_on < DATE '2026-03-01' GROUP BY customer_id ORDER BY net_revenue DESC, customer_id ASC;
