@@ -218,3 +218,71 @@ Scope: Attempted real Swing runtime + best-effort runtime verification in this e
 9. Select a row -> **Delete selected** (without physical delete); verify row removed but file remains on disk.
 10. Select another row -> **Delete selected** with physical delete checked; verify both DB row and file removed.
 11. Select existing row -> **Open selected file**; verify OS opens file, otherwise capture exact error popup text.
+
+---
+
+## SQL Learning Game — Reliability-First QA Gate (v1.1)
+Status: **FAIL**
+Date: 2026-03-01
+Workspace: `/home/hugog/.openclaw/workspace/sql-learning-game`
+
+### Scope executed
+1. API/route smoke for gameplay loop.
+2. Mission YAML loading regression checks (all current levels).
+3. SQL guardrail behavior checks.
+4. Scope-creep check for new content in this cycle.
+
+### Evidence
+- Test suite: `mvn test` → **PASS** (`Tests run: 13, Failures: 0, Errors: 0, Skipped: 0`).
+- Runtime smoke app launch: `mvn -q exec:java` (port `7070`) and direct API probes.
+- Mission files present under `src/main/resources/levels`: `level1.yml` ... `level15.yml` (15 total).
+- API `/api/levels` also returns 15 levels (`level-1` ... `level-15`).
+
+### Findings
+
+#### 1) [MEDIUM][ROUTE-REGRESSION] `/api/levels/unlocked` is unreachable (shadowed by `{id}` route)
+- **Expected:** `GET /api/levels/unlocked` returns unlocked list payload (as intended by route definition).
+- **Actual:** Returns `404 {"error":"Unknown level"}` because request is routed as `/api/levels/{id}` with `id=unlocked`.
+- **Repro steps:**
+  1) Start app: `cd sql-learning-game && mvn -q exec:java`
+  2) Run: `curl -i http://127.0.0.1:7070/api/levels/unlocked`
+  3) Observe `HTTP/1.1 404` and body `{"error":"Unknown level"}`.
+- **Impact:** Reliability inconsistency in public API surface; one unlock endpoint is effectively broken.
+- **Suggested fix:** Register `/api/levels/unlocked` before `/api/levels/{id}` or remove duplicate endpoint and keep only `/api/unlocked-levels`.
+
+#### 2) [PASS][GAMEPLAY-SMOKE] Core gameplay loop endpoints respond and execute
+- `GET /api/health` → 200
+- `GET /api/levels` → 200
+- `GET /api/levels/level-1` → 200
+- `GET /api/levels/level-1/schema` → 200
+- `POST /api/levels/level-1/run` with valid query → 200 + successful evaluation payload
+- `POST /api/levels/level-1/reset` → 200 `{ok:true}`
+- `GET /api/progress` → 200
+- `GET /api/unlocked-levels` → 200 with unlocked list
+- `POST /api/leaderboard/submit` + `GET /api/leaderboard/top` → 200
+
+#### 3) [PASS][SQL-GUARDRAILS] Safety behavior holds
+- Level-mode command allowlist enforced:
+  - `POST /api/levels/level-1/run` with `DELETE FROM customers;`
+  - Response feedback: `This level only allows: SELECT`.
+- Sandbox forbidden-command block enforced:
+  - `POST /api/sandbox/run` with `RUNSCRIPT FROM 'http://evil';`
+  - Response error: `That command is blocked in sandbox mode for safety.`
+
+#### 4) [PASS][YAML-LOADING] No missing mission files in current set
+- `LevelRepository` load list includes `level1.yml` to `level15.yml`.
+- All files exist on disk and app boots without load exceptions.
+- `/api/levels` exposes all 15 entries.
+
+#### 5) [PASS][SCOPE-CREEP-CHECK] No new content scope creep detected in this change set
+- Working-tree changes under `sql-learning-game` are code/tests only:
+  - `src/main/java/...` and `src/test/java/...`
+- No modified/added files under `src/main/resources/levels` during this cycle.
+
+### Severity summary
+- **HIGH:** 0
+- **MEDIUM:** 1
+- **LOW:** 0
+
+### Gate verdict
+**FAIL** for v1.1 reliability gate due to one route regression (`/api/levels/unlocked`) despite otherwise passing gameplay smoke, YAML loading, and SQL guardrail checks.
