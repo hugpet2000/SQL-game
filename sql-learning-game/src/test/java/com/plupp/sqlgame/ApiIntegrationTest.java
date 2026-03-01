@@ -14,11 +14,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -274,6 +276,62 @@ class ApiIntegrationTest {
         HttpResponse<String> allowed = client.send(
                 HttpRequest.newBuilder(URI.create(baseUrl + "/api/progress"))
                         .header("Authorization", "Bearer secret-token")
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        assertEquals(200, allowed.statusCode());
+
+        HttpResponse<String> health = client.send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/api/health"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        assertEquals(200, health.statusCode());
+    }
+
+
+    @Test
+    void hostedBasicAuthBlocksApiWithoutCredentials() throws Exception {
+        RuntimeConfig runtime = RuntimeConfig.forTesting(
+                "localhost",
+                7070,
+                tempDir.resolve("progress.json"),
+                tempDir.resolve("leaderboard.json"),
+                tempDir.resolve("player.json"),
+                tempDir.resolve("telemetry.ndjson"),
+                tempDir.resolve("backups"),
+                RuntimeConfig.AuthMode.BASIC,
+                null,
+                "student",
+                "secret"
+        );
+
+        app = App.create(
+                new LevelRepository(),
+                new SqlRunner(),
+                new ProgressStore(runtime.progressPath),
+                new LeaderboardStore(runtime.leaderboardPath),
+                new PlayerStore(runtime.playerPath),
+                new TelemetryStore(runtime.telemetryPath),
+                runtime
+        ).start(0);
+
+        String baseUrl = "http://localhost:" + app.port();
+
+        HttpResponse<String> blocked = client.send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/api/progress"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        assertEquals(401, blocked.statusCode());
+
+        String encoded = Base64.getEncoder().encodeToString("student:secret".getBytes(StandardCharsets.UTF_8));
+        HttpResponse<String> allowed = client.send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/api/progress"))
+                        .header("Authorization", "Basic " + encoded)
                         .GET()
                         .build(),
                 HttpResponse.BodyHandlers.ofString()

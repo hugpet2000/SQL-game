@@ -40,6 +40,7 @@ public class App {
         Javalin app = Javalin.create(config -> config.staticFiles.add("static"));
         HostedAuthGuard authGuard = new HostedAuthGuard(runtimeConfig);
         BackupService backupService = new BackupService(runtimeConfig);
+        ExportService exportService = new ExportService(runtimeConfig);
 
         app.beforeMatched(ctx -> {
             if (ctx.path().startsWith("/api") && !ctx.path().equals("/api/health")) {
@@ -191,6 +192,14 @@ public class App {
 
         app.post("/api/admin/backup", ctx -> {
             Map<String, Object> result = backupService.backupNow();
+            if (Boolean.FALSE.equals(result.get("ok"))) {
+                ctx.status(500);
+            }
+            ctx.json(result);
+        });
+
+        app.get("/api/admin/export", ctx -> {
+            Map<String, Object> result = exportService.exportSnapshot();
             if (Boolean.FALSE.equals(result.get("ok"))) {
                 ctx.status(500);
             }

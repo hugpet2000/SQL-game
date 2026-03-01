@@ -78,6 +78,7 @@ public class RuntimeConfig {
         String authToken = trimToNull(System.getenv("SQLGAME_AUTH_TOKEN"));
         String authUsername = trimToNull(System.getenv("SQLGAME_AUTH_USERNAME"));
         String authPassword = trimToNull(System.getenv("SQLGAME_AUTH_PASSWORD"));
+        authMode = normalizeAuthMode(authMode, authToken, authUsername, authPassword);
 
         RuntimeConfig config = new RuntimeConfig(
                 host,
@@ -109,6 +110,7 @@ public class RuntimeConfig {
             String authUsername,
             String authPassword
     ) {
+        AuthMode normalizedMode = normalizeAuthMode(authMode, authToken, authUsername, authPassword);
         RuntimeConfig cfg = new RuntimeConfig(
                 host,
                 port,
@@ -117,7 +119,7 @@ public class RuntimeConfig {
                 playerPath,
                 telemetryPath,
                 backupDir,
-                authMode,
+                normalizedMode,
                 authToken,
                 authUsername,
                 authPassword
@@ -142,6 +144,27 @@ public class RuntimeConfig {
         );
     }
 
+    private static AuthMode normalizeAuthMode(AuthMode authMode, String authToken, String authUsername, String authPassword) {
+        if (authMode == AuthMode.TOKEN && (authToken == null || authToken.isBlank())) {
+            System.err.println("WARN: SQLGAME_AUTH_MODE=token set without SQLGAME_AUTH_TOKEN; auth disabled");
+            return AuthMode.OFF;
+        }
+        if (authMode == AuthMode.BASIC && (authUsername == null || authUsername.isBlank() || authPassword == null || authPassword.isBlank())) {
+            System.err.println("WARN: SQLGAME_AUTH_MODE=basic set without SQLGAME_AUTH_USERNAME/SQLGAME_AUTH_PASSWORD; auth disabled");
+            return AuthMode.OFF;
+        }
+        return authMode;
+    }
+
+    private static void warnIfMissingAuthSecrets(AuthMode authMode, String authToken, String authUsername, String authPassword) {
+        if (authMode == AuthMode.TOKEN && (authToken == null || authToken.isBlank())) {
+            System.err.println("WARN: SQLGAME_AUTH_MODE=token set without SQLGAME_AUTH_TOKEN; auth disabled");
+        }
+        if (authMode == AuthMode.BASIC && (authUsername == null || authUsername.isBlank() || authPassword == null || authPassword.isBlank())) {
+            System.err.println("WARN: SQLGAME_AUTH_MODE=basic set without SQLGAME_AUTH_USERNAME/SQLGAME_AUTH_PASSWORD; auth disabled");
+        }
+    }
+
     public String newBackupLabel() {
         return DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(ZonedDateTime.now(ZoneOffset.UTC));
     }
@@ -151,19 +174,8 @@ public class RuntimeConfig {
             throw new IllegalArgumentException("SQLGAME_PORT must be between 1 and 65535");
         }
 
-        switch (authMode) {
-            case TOKEN -> {
-                if (authToken == null || authToken.isBlank()) {
-                    throw new IllegalArgumentException("SQLGAME_AUTH_TOKEN is required when SQLGAME_AUTH_MODE=token");
-                }
-            }
-            case BASIC -> {
-                if (authUsername == null || authPassword == null) {
-                    throw new IllegalArgumentException("SQLGAME_AUTH_USERNAME and SQLGAME_AUTH_PASSWORD are required when SQLGAME_AUTH_MODE=basic");
-                }
-            }
-            default -> {
-            }
+        if (authMode != AuthMode.OFF) {
+            warnIfMissingAuthSecrets(authMode, authToken, authUsername, authPassword);
         }
     }
 

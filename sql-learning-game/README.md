@@ -64,6 +64,8 @@ For basic mode:
 
 `/api/health` is intentionally left public for uptime checks. Other `/api/*` routes are protected when auth is enabled.
 
+If auth mode is set but the required secret(s) are missing, the server logs a warning and starts with auth disabled. This avoids a crash during misconfigured deploys, but it also means you could accidentally expose the API if you skip secrets.
+
 ### Example (hosted with token auth)
 
 ```bash
@@ -96,6 +98,17 @@ curl -X POST \
 ```
 
 Response includes backup path and copied-file status.
+
+### API endpoint (read-only export snapshot)
+
+Returns a JSON snapshot of current progress, leaderboard, player profile, and telemetry. Useful for quick backups or admin exports without touching the filesystem.
+
+```bash
+curl -H "Authorization: Bearer $SQLGAME_AUTH_TOKEN" \
+  http://localhost:7070/api/admin/export
+```
+
+The export response includes potentially sensitive data (player IDs, telemetry), so keep auth enabled when exposing this endpoint.
 
 ### Offline script
 
