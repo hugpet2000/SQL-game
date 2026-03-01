@@ -7,38 +7,21 @@ import com.plupp.sqlgame.store.PlayerStore;
 import com.plupp.sqlgame.store.ProgressStore;
 import com.plupp.sqlgame.store.TelemetryStore;
 
-import java.nio.file.Path;
-
 public class Main {
     public static void main(String[] args) {
+        RuntimeConfig runtime = RuntimeConfig.fromEnv();
+
         var app = App.create(
                 new LevelRepository(),
                 new SqlRunner(),
-                new ProgressStore(Path.of("data", "progress.json")),
-                new LeaderboardStore(Path.of("data", "leaderboard.json")),
-                new PlayerStore(Path.of("data", "player.json")),
-                new TelemetryStore(Path.of("data", "telemetry.ndjson"))
+                new ProgressStore(runtime.progressPath),
+                new LeaderboardStore(runtime.leaderboardPath),
+                new PlayerStore(runtime.playerPath),
+                new TelemetryStore(runtime.telemetryPath),
+                runtime
         );
 
-        String host = envOrDefault("HOST", "localhost");
-        int port = intEnvOrDefault("PORT", 7070);
-
-        app.start(host, port);
-        System.out.println("SQL Learning Game running on http://" + host + ":" + port);
-    }
-
-    private static String envOrDefault(String key, String fallback) {
-        String value = System.getenv(key);
-        return (value == null || value.isBlank()) ? fallback : value;
-    }
-
-    private static int intEnvOrDefault(String key, int fallback) {
-        String value = System.getenv(key);
-        if (value == null || value.isBlank()) return fallback;
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException ignored) {
-            return fallback;
-        }
+        app.start(runtime.host, runtime.port);
+        System.out.println("SQL Learning Game running on http://" + runtime.host + ":" + runtime.port);
     }
 }

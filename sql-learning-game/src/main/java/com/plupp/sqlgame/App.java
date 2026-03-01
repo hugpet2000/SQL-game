@@ -24,16 +24,28 @@ public class App {
     private static final Set<String> ALLOWED_TELEMETRY_TYPES = Set.of("level_attempt", "hint_used", "solve_time");
 
     public static Javalin create(LevelRepository levels, SqlRunner runner, ProgressStore progressStore, LeaderboardStore leaderboardStore, PlayerStore playerStore) {
-        return create(levels, runner, progressStore, leaderboardStore, playerStore, null);
+        return create(levels, runner, progressStore, leaderboardStore, playerStore, null, RuntimeConfig.localDefaults());
     }
 
     public static Javalin create(LevelRepository levels, SqlRunner runner, ProgressStore progressStore, LeaderboardStore leaderboardStore, PlayerStore playerStore, TelemetryStore telemetryStore) {
+        return create(levels, runner, progressStore, leaderboardStore, playerStore, telemetryStore, RuntimeConfig.localDefaults());
+    }
+
+    public static Javalin create(LevelRepository levels, SqlRunner runner, ProgressStore progressStore, LeaderboardStore leaderboardStore, PlayerStore playerStore, TelemetryStore telemetryStore, RuntimeConfig runtimeConfig) {
         EvaluationEngine evaluator = new EvaluationEngine(runner, progressStore);
         UnlockService unlockService = new UnlockService();
 
         levels.list().forEach(runner::reset);
 
         Javalin app = Javalin.create(config -> config.staticFiles.add("static"));
+        HostedAuthGuard authGuard = new HostedAuthGuard(runtimeConfig);
+        BackupService backupService = new BackupService(runtimeConfig);
+
+        app.beforeMatched(ctx -> {
+            if (ctx.path().startsWith("/api") && !ctx.path().equals("/api/health")) {
+                authGuard.enforce(ctx);
+            }
+        });
 
         app.get("/api/health", ctx -> ctx.json(Map.of("ok", true)));
 
@@ -175,6 +187,14 @@ public class App {
                     "globalTop", leaderboardStore.globalTop(limit),
                     "perLevelTop", leaderboardStore.perLevelTop(limit)
             ));
+        });
+
+        app.post("/api/admin/backup", ctx -> {
+            Map<String, Object> result = backupService.backupNow();
+            if (Boolean.FALSE.equals(result.get("ok"))) {
+                ctx.status(500);
+            }
+            ctx.json(result);
         });
 
         app.exception(IllegalArgumentException.class, (e, ctx) -> ctx.status(404).json(Map.of("error", e.getMessage())));

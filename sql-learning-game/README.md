@@ -22,7 +22,7 @@ A developer-style SQL learning game for young tech students (16–25), built in 
 - H2 (embedded SQL engine)
 - Jackson (YAML/JSON)
 
-## Run
+## Run (local default)
 
 ```bash
 mvn -q exec:java
@@ -30,22 +30,80 @@ mvn -q exec:java
 
 Open: http://localhost:7070
 
-## Hosted dev run (quick stakeholder testing)
+## Hosted mode / runtime config
+
+All runtime settings are environment-driven.
+
+### Network + data paths
+
+- `SQLGAME_HOST` (default: `localhost`)
+- `SQLGAME_PORT` (default: `7070`)
+- `SQLGAME_DATA_DIR` (default: `data`)
+- `SQLGAME_PROGRESS_PATH` (optional override)
+- `SQLGAME_LEADERBOARD_PATH` (optional override)
+- `SQLGAME_PLAYER_PATH` (optional override)
+- `SQLGAME_TELEMETRY_PATH` (optional override)
+- `SQLGAME_BACKUP_DIR` (default: `${SQLGAME_DATA_DIR}/backups`)
+
+### Auth guard (optional, recommended when exposed)
+
+Set `SQLGAME_AUTH_MODE`:
+
+- `off` (default) — no auth (local mode behavior)
+- `token` — bearer token auth
+- `basic` — HTTP basic auth
+
+For token mode:
+
+- `SQLGAME_AUTH_TOKEN=<long-random-secret>`
+
+For basic mode:
+
+- `SQLGAME_AUTH_USERNAME=<user>`
+- `SQLGAME_AUTH_PASSWORD=<pass>`
+
+`/api/health` is intentionally left public for uptime checks. Other `/api/*` routes are protected when auth is enabled.
+
+### Example (hosted with token auth)
 
 ```bash
-cp .env.hosted.example .env.hosted
-# optional: edit PORT/HOST
-chmod +x scripts/run-hosted.sh
-./scripts/run-hosted.sh
+export SQLGAME_HOST=0.0.0.0
+export SQLGAME_PORT=7070
+export SQLGAME_DATA_DIR=/var/lib/sql-learning-game
+export SQLGAME_AUTH_MODE=token
+export SQLGAME_AUTH_TOKEN='replace-with-strong-token'
+
+mvn -q exec:java
 ```
 
-Defaults: `HOST=0.0.0.0`, `PORT=7070`.
+Example authenticated call:
 
-Open from another device:
-
-```text
-http://<server-ip>:7070
+```bash
+curl -H "Authorization: Bearer $SQLGAME_AUTH_TOKEN" \
+  http://localhost:7070/api/progress
 ```
+
+## Backup / export progress data
+
+### API endpoint (safe local backup)
+
+Creates a timestamped backup folder and copies current data files.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $SQLGAME_AUTH_TOKEN" \
+  http://localhost:7070/api/admin/backup
+```
+
+Response includes backup path and copied-file status.
+
+### Offline script
+
+```bash
+./scripts/backup-progress.sh [data_dir] [backup_root]
+```
+
+Defaults to `data` and `data/backups`.
 
 ## Test
 
@@ -110,23 +168,4 @@ Optional API view (recent rows):
 
 ```bash
 curl 'http://localhost:7070/api/telemetry/recent?limit=20'
-```
-
-## Remote health/smoke checks
-
-Quick one-liner block:
-
-```bash
-BASE_URL="https://your-host-or-tunnel-url"
-curl -fsS "$BASE_URL/api/health"
-curl -fsS "$BASE_URL/api/levels" >/dev/null
-curl -fsS "$BASE_URL/api/progress" >/dev/null
-curl -fsS "$BASE_URL/" >/dev/null && echo "✅ remote smoke OK"
-```
-
-Or use the helper script:
-
-```bash
-chmod +x scripts/smoke-url.sh
-./scripts/smoke-url.sh https://your-host-or-tunnel-url
 ```

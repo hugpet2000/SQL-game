@@ -235,6 +235,60 @@ class ApiIntegrationTest {
         assertEquals("Hugo", playerReloaded.get("nickname"));
     }
 
+    @Test
+    void hostedTokenAuthBlocksApiWithoutBearerToken() throws Exception {
+        RuntimeConfig runtime = RuntimeConfig.forTesting(
+                "localhost",
+                7070,
+                tempDir.resolve("progress.json"),
+                tempDir.resolve("leaderboard.json"),
+                tempDir.resolve("player.json"),
+                tempDir.resolve("telemetry.ndjson"),
+                tempDir.resolve("backups"),
+                RuntimeConfig.AuthMode.TOKEN,
+                "secret-token",
+                null,
+                null
+        );
+
+        app = App.create(
+                new LevelRepository(),
+                new SqlRunner(),
+                new ProgressStore(runtime.progressPath),
+                new LeaderboardStore(runtime.leaderboardPath),
+                new PlayerStore(runtime.playerPath),
+                new TelemetryStore(runtime.telemetryPath),
+                runtime
+        ).start(0);
+
+        String baseUrl = "http://localhost:" + app.port();
+
+        HttpResponse<String> blocked = client.send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/api/progress"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        assertEquals(401, blocked.statusCode());
+
+        HttpResponse<String> allowed = client.send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/api/progress"))
+                        .header("Authorization", "Bearer secret-token")
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        assertEquals(200, allowed.statusCode());
+
+        HttpResponse<String> health = client.send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/api/health"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        assertEquals(200, health.statusCode());
+    }
+
     private Map<String, Object> postSql(String url, String sql) throws IOException, InterruptedException {
         HttpResponse<String> response = client.send(
                 HttpRequest.newBuilder(URI.create(url))
