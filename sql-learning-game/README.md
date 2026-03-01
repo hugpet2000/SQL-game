@@ -11,6 +11,7 @@ A developer-style SQL learning game for young tech students (16–25), built in 
 - Friendly SQL error feedback
 - Optional hints with escalation + advanced-level hint gating/nudges
 - Persistent progress (`data/progress.json`)
+- Local telemetry capture (`data/telemetry.ndjson`) for attempts/hints/solve times
 - Sandbox mode for free experimentation
 - Dark-mode web UI (local/offline-first) with focus cues and short per-level explanation snippets
 
@@ -50,7 +51,7 @@ mvn test
 ## Project structure
 
 - `src/main/java/com/plupp/sqlgame/core` — level loading, SQL execution, evaluation
-- `src/main/java/com/plupp/sqlgame/store` — progress persistence
+- `src/main/java/com/plupp/sqlgame/store` — progress + leaderboard + telemetry persistence
 - `src/main/resources/levels` — data-driven level definitions
 - `src/main/resources/static` — frontend UI
 
@@ -65,3 +66,31 @@ mvn test
 ## Notes
 
 - Designed to be extensible: add more YAML levels without changing evaluator logic.
+
+## Local telemetry (v1.2 playtest support)
+
+Telemetry is file-based (no external service):
+
+- `level_attempt` when Run is pressed
+- `hint_used` when a hint is opened
+- `solve_time` when a level is solved (includes `durationMs`)
+
+Where data is stored:
+
+- `data/telemetry.ndjson` (one JSON object per line)
+
+Quick inspection commands:
+
+```bash
+# latest 20 telemetry lines
+tail -n 20 data/telemetry.ndjson
+
+# only solve times
+grep '"type":"solve_time"' data/telemetry.ndjson
+```
+
+Optional API view (recent rows):
+
+```bash
+curl 'http://localhost:7070/api/telemetry/recent?limit=20'
+```

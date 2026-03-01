@@ -8,17 +8,26 @@ import com.plupp.sqlgame.model.LeaderboardEntry;
 import com.plupp.sqlgame.model.LevelDefinition;
 import com.plupp.sqlgame.model.PlayerProfile;
 import com.plupp.sqlgame.model.ProgressState;
+import com.plupp.sqlgame.model.TelemetryEvent;
 import com.plupp.sqlgame.store.LeaderboardStore;
 import com.plupp.sqlgame.store.PlayerStore;
 import com.plupp.sqlgame.store.ProgressStore;
+import com.plupp.sqlgame.store.TelemetryStore;
 import io.javalin.Javalin;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class App {
+    private static final Set<String> ALLOWED_TELEMETRY_TYPES = Set.of("level_attempt", "hint_used", "solve_time");
+
     public static Javalin create(LevelRepository levels, SqlRunner runner, ProgressStore progressStore, LeaderboardStore leaderboardStore, PlayerStore playerStore) {
+        return create(levels, runner, progressStore, leaderboardStore, playerStore, null);
+    }
+
+    public static Javalin create(LevelRepository levels, SqlRunner runner, ProgressStore progressStore, LeaderboardStore leaderboardStore, PlayerStore playerStore, TelemetryStore telemetryStore) {
         EvaluationEngine evaluator = new EvaluationEngine(runner, progressStore);
         UnlockService unlockService = new UnlockService();
 
@@ -102,6 +111,34 @@ public class App {
 
         app.get("/api/progress", ctx -> ctx.json(progressStore.load()));
 
+        app.post("/api/telemetry/event", ctx -> {
+            TelemetryRequest request = ctx.bodyAsClass(TelemetryRequest.class);
+            if (telemetryStore == null || !isValidTelemetryRequest(request)) {
+                ctx.json(Map.of("ok", false));
+                return;
+            }
+
+            PlayerProfile profile = playerStore.loadOrCreate();
+            TelemetryEvent event = new TelemetryEvent(
+                    request.type,
+                    request.levelId,
+                    profile.playerId,
+                    request.durationMs,
+                    request.hintIndex,
+                    System.currentTimeMillis()
+            );
+            ctx.json(Map.of("ok", telemetryStore.record(event)));
+        });
+
+        app.get("/api/telemetry/recent", ctx -> {
+            if (telemetryStore == null) {
+                ctx.json(List.of());
+                return;
+            }
+            int limit = Math.max(1, ctx.queryParamAsClass("limit", Integer.class).getOrDefault(50));
+            ctx.json(telemetryStore.recent(limit));
+        });
+
         app.post("/api/leaderboard/submit", ctx -> {
             SubmitRequest request = ctx.bodyAsClass(SubmitRequest.class);
             if (request.score <= 0) {
@@ -145,6 +182,14 @@ public class App {
         return app;
     }
 
+    private static boolean isValidTelemetryRequest(TelemetryRequest request) {
+        return request != null
+                && request.levelId != null
+                && !request.levelId.isBlank()
+                && request.type != null
+                && ALLOWED_TELEMETRY_TYPES.contains(request.type);
+    }
+
     private static String sanitizeNickname(String raw) {
         if (raw == null) return "";
         String trimmed = raw.trim();
@@ -168,5 +213,12 @@ public class App {
 
     public static class PlayerRequest {
         public String nickname;
+    }
+
+    public static class TelemetryRequest {
+        public String type;
+        public String levelId;
+        public Long durationMs;
+        public Long hintIndex;
     }
 }

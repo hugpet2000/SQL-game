@@ -7,6 +7,7 @@ import com.plupp.sqlgame.core.SqlRunner;
 import com.plupp.sqlgame.store.LeaderboardStore;
 import com.plupp.sqlgame.store.PlayerStore;
 import com.plupp.sqlgame.store.ProgressStore;
+import com.plupp.sqlgame.store.TelemetryStore;
 import io.javalin.Javalin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -47,7 +48,8 @@ class ApiIntegrationTest {
                 new SqlRunner(),
                 new ProgressStore(tempDir.resolve("progress.json")),
                 new LeaderboardStore(tempDir.resolve("leaderboard.json")),
-                new PlayerStore(tempDir.resolve("player.json"))
+                new PlayerStore(tempDir.resolve("player.json")),
+                new TelemetryStore(tempDir.resolve("telemetry.ndjson"))
         ).start(0);
 
         String baseUrl = "http://localhost:" + app.port();
@@ -97,7 +99,8 @@ class ApiIntegrationTest {
                 new SqlRunner(),
                 new ProgressStore(tempDir.resolve("progress.json")),
                 new LeaderboardStore(tempDir.resolve("leaderboard.json")),
-                new PlayerStore(tempDir.resolve("player.json"))
+                new PlayerStore(tempDir.resolve("player.json")),
+                new TelemetryStore(tempDir.resolve("telemetry.ndjson"))
         ).start(0);
 
         String baseUrl = "http://localhost:" + app.port();
@@ -111,6 +114,37 @@ class ApiIntegrationTest {
         assertNotNull(compat.get("unlockedLevels"));
     }
 
+
+    @Test
+    void telemetryEventEndpointRecordsAndReturnsRecentEvents() throws Exception {
+        app = App.create(
+                new LevelRepository(),
+                new SqlRunner(),
+                new ProgressStore(tempDir.resolve("progress.json")),
+                new LeaderboardStore(tempDir.resolve("leaderboard.json")),
+                new PlayerStore(tempDir.resolve("player.json")),
+                new TelemetryStore(tempDir.resolve("telemetry.ndjson"))
+        ).start(0);
+
+        String baseUrl = "http://localhost:" + app.port();
+
+        Map<String, Object> accepted = postJson(baseUrl + "/api/telemetry/event", Map.of(
+                "type", "level_attempt",
+                "levelId", "level-1"
+        ));
+        assertEquals(true, accepted.get("ok"));
+
+        Map<String, Object> invalid = postJson(baseUrl + "/api/telemetry/event", Map.of(
+                "type", "made_up",
+                "levelId", "level-1"
+        ));
+        assertEquals(false, invalid.get("ok"));
+
+        List<Map<String, Object>> recent = getJson(baseUrl + "/api/telemetry/recent?limit=5", new TypeReference<>() {});
+        assertFalse(recent.isEmpty());
+        assertEquals("level_attempt", recent.get(recent.size() - 1).get("type"));
+    }
+
     @Test
     void returns404ForUnknownLevelRoute() throws Exception {
         app = App.create(
@@ -118,7 +152,8 @@ class ApiIntegrationTest {
                 new SqlRunner(),
                 new ProgressStore(tempDir.resolve("progress.json")),
                 new LeaderboardStore(tempDir.resolve("leaderboard.json")),
-                new PlayerStore(tempDir.resolve("player.json"))
+                new PlayerStore(tempDir.resolve("player.json")),
+                new TelemetryStore(tempDir.resolve("telemetry.ndjson"))
         ).start(0);
 
         HttpResponse<String> response = client.send(
@@ -141,7 +176,8 @@ class ApiIntegrationTest {
                 new SqlRunner(),
                 new ProgressStore(tempDir.resolve("progress.json")),
                 new LeaderboardStore(tempDir.resolve("leaderboard.json")),
-                new PlayerStore(tempDir.resolve("player.json"))
+                new PlayerStore(tempDir.resolve("player.json")),
+                new TelemetryStore(tempDir.resolve("telemetry.ndjson"))
         ).start(0);
 
         String baseUrl = "http://localhost:" + app.port();
@@ -163,7 +199,8 @@ class ApiIntegrationTest {
                 new SqlRunner(),
                 new ProgressStore(tempDir.resolve("progress.json")),
                 new LeaderboardStore(tempDir.resolve("leaderboard.json")),
-                new PlayerStore(tempDir.resolve("player.json"))
+                new PlayerStore(tempDir.resolve("player.json")),
+                new TelemetryStore(tempDir.resolve("telemetry.ndjson"))
         ).start(0);
 
         String baseUrl = "http://localhost:" + app.port();
