@@ -5,126 +5,51 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SQL Learning Game</title>
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #111827;
-      --bg-soft: #0f172a;
-      --panel: #0b1220;
-      --border: #253046;
-      --border-soft: #334155;
-      --text: #f3f4f6;
-      --muted: #94a3b8;
-      --primary: #4f46e5;
-      --primary-soft: #1b2440;
-      --ok: #4ade80;
-      --err: #fb7185;
-      --fn: #22d3ee;
-      --kw: #a78bfa;
-      --locked: #64748b;
-    }
-    :root.hc {
-      --bg: #000000;
-      --bg-soft: #05080f;
-      --panel: #000000;
-      --border: #9ca3af;
-      --border-soft: #cbd5e1;
-      --text: #ffffff;
-      --muted: #d1d5db;
-      --primary: #60a5fa;
-      --primary-soft: #1e293b;
-      --ok: #86efac;
-      --err: #fca5a5;
-      --fn: #67e8f9;
-      --kw: #c4b5fd;
-      --locked: #9ca3af;
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--text); }
-    .app { display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
-    .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 16px; display:flex; flex-direction:column; gap:12px; }
-    .main { padding: 16px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 12px; }
-    .card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
-    .subtle-card { background: var(--bg-soft); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px; }
-    .level {
-      cursor: pointer; padding: 8px; border-radius: 8px; border: 1px solid transparent; margin-bottom: 6px;
-      display:flex; align-items:center; justify-content:space-between; gap:8px;
-    }
-    .level:hover, .active { border-color: var(--primary); background: var(--primary-soft); }
-    .level-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .level-meta { display:flex; align-items:center; gap:8px; }
-    .check { color: var(--ok); font-weight:700; }
-    .lock { color: var(--locked); font-weight:700; }
-    .level.locked { opacity: 0.55; cursor: not-allowed; }
-    .level.locked:hover { border-color: transparent; background: transparent; }
-    .editor-layout { display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:start; }
-    .editor-box { position: relative; border: 1px solid var(--border-soft); border-radius: 8px; overflow: hidden; background: var(--bg-soft); }
-    .editor-box pre, .editor-box textarea {
-      margin: 0; width: 100%; min-height: 220px; padding: 10px;
-      font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-      white-space: pre; overflow: auto;
-    }
-    .editor-box pre { color: #cbd5e1; pointer-events: none; }
-    .editor-box textarea {
-      position: absolute; inset: 0; border: 0; resize: vertical;
-      background: transparent; color: transparent; caret-color: #e5e7eb;
-    }
-    .sql-kw { color: var(--kw); font-weight: 600; }
-    .sql-fn { color: var(--fn); }
-    .schema-wrap { max-height: 260px; overflow: auto; }
-    .schema-table { border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: var(--bg-soft); }
-    .schema-table h5 { margin: 0 0 6px 0; color: #93c5fd; }
-    .schema-col { display:flex; justify-content:space-between; gap:6px; font-family: ui-monospace, monospace; font-size: 12px; padding:2px 0; }
-    .nullable { color: var(--muted); }
-    button { background: var(--primary); border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-    button.secondary { background: #334155; }
-    button.tiny { padding: 4px 8px; font-size: 12px; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    input[type="text"] { width:100%; background: var(--bg-soft); color: var(--text); border:1px solid var(--border-soft); border-radius: 6px; padding: 6px 8px; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { border: 1px solid var(--border-soft); padding: 6px; }
-    .muted { color: var(--muted); font-size: 13px; }
-    .ok { color: var(--ok); }
-    .err { color: var(--err); }
-    .achievements { margin-top: 10px; padding: 8px; border:1px solid var(--border-soft); border-radius:8px; background: var(--bg-soft); }
-    .achievements ul { margin: 6px 0 0 18px; padding: 0; }
-    .leaderboard-list { margin: 8px 0 0 16px; padding: 0; font-size: 13px; }
-    .leaderboard-list li { margin-bottom: 4px; }
-    .settings-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
-    .pill { font-size: 12px; color: var(--muted); border:1px solid var(--border-soft); border-radius: 999px; padding:2px 8px; }
-    .cue { margin-top: 6px; color: #bfdbfe; font-size: 13px; }
-    .hint-locked { color: var(--muted); font-size: 12px; margin-left: 6px; }
-    .explain { margin-top: 8px; }
+    :root { color-scheme: dark; --bg:#111827; --bg-soft:#0f172a; --panel:#0b1220; --border:#253046; --border-soft:#334155; --text:#f3f4f6; --muted:#94a3b8; --primary:#4f46e5; --primary-soft:#1b2440; --ok:#4ade80; --err:#fb7185; --fn:#22d3ee; --kw:#a78bfa; --locked:#64748b; }
+    :root.hc { --bg:#000; --bg-soft:#05080f; --panel:#000; --border:#9ca3af; --border-soft:#cbd5e1; --text:#fff; --muted:#d1d5db; --primary:#60a5fa; --primary-soft:#1e293b; --ok:#86efac; --err:#fca5a5; --fn:#67e8f9; --kw:#c4b5fd; --locked:#9ca3af; }
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .app{display:grid;grid-template-columns:320px 1fr;min-height:100vh}.sidebar{background:var(--panel);border-right:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:12px}.main{padding:16px;display:grid;grid-template-rows:auto auto 1fr auto;gap:12px}
+    .card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px}.subtle-card{background:var(--bg-soft);border:1px solid var(--border-soft);border-radius:8px;padding:8px}
+    .level{cursor:pointer;padding:8px;border-radius:8px;border:1px solid transparent;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px}.level:hover,.active{border-color:var(--primary);background:var(--primary-soft)}.level-main{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.level-meta{display:flex;align-items:center;gap:8px}.check{color:var(--ok);font-weight:700}.lock{color:var(--locked);font-weight:700}.level.locked{opacity:.55;cursor:not-allowed}.level.locked:hover{border-color:transparent;background:transparent}
+    .editor-layout{display:grid;grid-template-columns:2fr 1fr;gap:12px;align-items:start}.editor-box{position:relative;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;background:var(--bg-soft)}
+    .editor-box pre,.editor-box textarea{margin:0;width:100%;min-height:220px;padding:10px;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;overflow:auto}
+    .editor-box pre{color:#cbd5e1;pointer-events:none}.editor-box textarea{position:absolute;inset:0;border:0;resize:vertical;background:transparent;color:transparent;caret-color:#e5e7eb}
+    .sql-kw{color:var(--kw);font-weight:600}.sql-fn{color:var(--fn)}.schema-wrap{max-height:260px;overflow:auto}.schema-table{border:1px solid var(--border-soft);border-radius:8px;padding:8px;margin-bottom:8px;background:var(--bg-soft)}.schema-table h5{margin:0 0 6px;color:#93c5fd}.schema-col{display:flex;justify-content:space-between;gap:6px;font-family:ui-monospace,monospace;font-size:12px;padding:2px 0}.nullable{color:var(--muted)}
+    button{background:var(--primary);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer}button.secondary{background:#334155}button.tiny{padding:4px 8px;font-size:12px}button:disabled{opacity:.5;cursor:not-allowed}
+    input[type="text"]{width:100%;background:var(--bg-soft);color:var(--text);border:1px solid var(--border-soft);border-radius:6px;padding:6px 8px}
+    table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid var(--border-soft);padding:6px}.muted{color:var(--muted);font-size:13px}.ok{color:var(--ok)}.err{color:var(--err)}
+    .achievements{margin-top:10px;padding:8px;border:1px solid var(--border-soft);border-radius:8px;background:var(--bg-soft)}.achievements ul{margin:6px 0 0 18px;padding:0}.leaderboard-list{margin:8px 0 0 16px;padding:0;font-size:13px}.leaderboard-list li{margin-bottom:4px}
+    .settings-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}.pill{font-size:12px;color:var(--muted);border:1px solid var(--border-soft);border-radius:999px;padding:2px 8px}.cue{margin-top:6px;color:#bfdbfe;font-size:13px}.hint-locked{color:var(--muted);font-size:12px;margin-left:6px}.explain{margin-top:8px}
   </style>
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
-    <div>
-      <h3 style="margin:0 0 8px 0;">SQL Learning Game</h3>
-      <div id="progress" class="muted">Loading progress...</div>
-    </div>
+    <div><h3 style="margin:0 0 8px 0;">SQL Learning Game</h3><div id="progress" class="muted">Loading progress...</div></div>
 
     <div class="subtle-card">
-      <strong>Settings</strong>
-      <div class="settings-row">
-        <span class="muted">Font size</span>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <button id="fontDownBtn" class="secondary tiny">A-</button>
-          <span id="fontLabel" class="pill">100%</span>
-          <button id="fontUpBtn" class="secondary tiny">A+</button>
-        </div>
+      <strong>Player profile</strong>
+      <div id="playerIdLabel" class="muted">Loading local account...</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+        <input id="profileNicknameInput" type="text" maxlength="20" placeholder="Nickname (max 20)" />
+        <button id="saveProfileBtn" class="secondary tiny">Save</button>
       </div>
-      <div class="settings-row">
-        <span class="muted">High contrast</span>
-        <button id="contrastBtn" class="secondary tiny">Off</button>
-      </div>
+      <div id="profileStatus" class="muted" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="subtle-card"><strong>Settings</strong>
+      <div class="settings-row"><span class="muted">Font size</span><div style="display:flex;gap:6px;align-items:center;"><button id="fontDownBtn" class="secondary tiny">A-</button><span id="fontLabel" class="pill">100%</span><button id="fontUpBtn" class="secondary tiny">A+</button></div></div>
+      <div class="settings-row"><span class="muted">High contrast</span><button id="contrastBtn" class="secondary tiny">Off</button></div>
     </div>
 
     <div class="subtle-card">
       <strong>Leaderboard</strong>
-      <div class="muted">Top mission scores</div>
-      <ol id="leaderboardList" class="leaderboard-list"></ol>
-      <div id="leaderboardEmpty" class="muted">No scores yet. Be first.</div>
+      <div class="muted" style="margin-top:6px;">Global top players</div>
+      <ol id="leaderboardGlobalList" class="leaderboard-list"></ol>
+      <div id="leaderboardGlobalEmpty" class="muted">No scores yet. Be first.</div>
+      <div class="muted" style="margin-top:10px;">Current level top</div>
+      <ol id="leaderboardLevelList" class="leaderboard-list"></ol>
+      <div id="leaderboardLevelEmpty" class="muted">Pick a level to view level top.</div>
     </div>
 
     <hr style="border-color:var(--border); width:100%;" />
@@ -133,463 +58,85 @@
 
   <main class="main">
     <section class="card">
-      <h2 id="title">Pick a mission</h2>
-      <div id="objective" class="muted"></div>
-      <div id="objectiveCue" class="cue"></div>
-      <p id="prompt"></p>
-      <div>
-        <button id="hintBtn" class="secondary">Hint</button>
-        <span id="hintLock" class="hint-locked"></span>
-        <span id="hint" class="muted"></span>
-      </div>
+      <h2 id="title">Pick a mission</h2><div id="objective" class="muted"></div><div id="objectiveCue" class="cue"></div><p id="prompt"></p>
+      <div><button id="hintBtn" class="secondary">Hint</button><span id="hintLock" class="hint-locked"></span><span id="hint" class="muted"></span></div>
       <div id="explanation" class="subtle-card explain" style="display:none;"></div>
     </section>
 
     <section class="card editor-layout">
-      <div>
-        <div class="editor-box">
-          <pre id="sqlHighlight" aria-hidden="true"></pre>
-          <textarea id="sql" placeholder="Write your SQL here..."></textarea>
-        </div>
-        <div style="margin-top:8px;display:flex;gap:8px;">
-          <button id="runBtn">Run Query (Ctrl+Enter)</button>
-          <button id="resetBtn" class="secondary">Reset Level DB</button>
-        </div>
-      </div>
-      <div class="card" style="margin:0;">
-        <h4 style="margin-top:0;">Schema Viewer</h4>
-        <div id="schema" class="schema-wrap muted">Pick a level to inspect tables and columns.</div>
-      </div>
+      <div><div class="editor-box"><pre id="sqlHighlight" aria-hidden="true"></pre><textarea id="sql" placeholder="Write your SQL here..."></textarea></div>
+        <div style="margin-top:8px;display:flex;gap:8px;"><button id="runBtn">Run Query (Ctrl+Enter)</button><button id="resetBtn" class="secondary">Reset Level DB</button></div></div>
+      <div class="card" style="margin:0;"><h4 style="margin-top:0;">Schema Viewer</h4><div id="schema" class="schema-wrap muted">Pick a level to inspect tables and columns.</div></div>
     </section>
 
     <section class="card">
       <div id="feedback" class="muted">Ready.</div>
-      <div id="submitScorePanel" class="subtle-card" style="margin-top:8px;display:none;">
-        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
-          <strong>Submit score</strong>
-          <span id="submitScoreMeta" class="muted"></span>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
-          <input id="nicknameInput" type="text" maxlength="20" placeholder="Nickname (max 20)" />
-          <button id="submitScoreBtn">Submit</button>
-        </div>
+      <div id="submitScorePanel" class="subtle-card" style="margin-top:8px;display:none;"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><strong>Submit score</strong><span id="submitScoreMeta" class="muted"></span></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;"><button id="submitScoreBtn">Submit with current profile</button></div>
         <div id="submitScoreStatus" class="muted" style="margin-top:6px;"></div>
       </div>
-      <div id="achievements" class="achievements" style="display:none;"></div>
-      <div id="result"></div>
+      <div id="achievements" class="achievements" style="display:none;"></div><div id="result"></div>
     </section>
 
     <section class="card">
-      <h4>Sandbox</h4>
-      <div class="muted">Try SQL freely (safe-mode blocks dangerous commands).</div>
-      <div class="editor-box" style="margin:8px 0;">
-        <pre id="sandboxHighlight" aria-hidden="true"></pre>
-        <textarea id="sandboxSql" placeholder="CREATE TABLE demo(id INT PRIMARY KEY, name VARCHAR(50));"></textarea>
-      </div>
-      <button id="sandboxBtn" class="secondary">Run in Sandbox</button>
-      <div id="sandboxResult"></div>
+      <h4>Sandbox</h4><div class="muted">Try SQL freely (safe-mode blocks dangerous commands).</div>
+      <div class="editor-box" style="margin:8px 0;"><pre id="sandboxHighlight" aria-hidden="true"></pre><textarea id="sandboxSql" placeholder="CREATE TABLE demo(id INT PRIMARY KEY, name VARCHAR(50));"></textarea></div>
+      <button id="sandboxBtn" class="secondary">Run in Sandbox</button><div id="sandboxResult"></div>
     </section>
   </main>
 </div>
 <script>
-  let levels = [];
-  let current = null;
-  let hintIndex = 0;
-  let completedLevels = new Set();
-  let unlockedLevels = new Set();
-  let pendingScoreSubmission = null;
-  const attemptsByLevel = {};
-  let currentAttempts = 0;
+let levels=[], current=null, hintIndex=0, completedLevels=new Set(), unlockedLevels=new Set(), pendingScoreSubmission=null, localPlayer=null;
+const attemptsByLevel={}; let currentAttempts=0; const SETTINGS_KEY='sqlgame_ui_settings_v1'; let uiSettings={fontScale:100,highContrast:false};
+const KEYWORDS=['SELECT','FROM','WHERE','JOIN','INNER','LEFT','RIGHT','FULL','ON','GROUP','BY','ORDER','HAVING','AS','DISTINCT','LIMIT','OFFSET','INSERT','INTO','VALUES','UPDATE','SET','DELETE','CREATE','TABLE','ALTER','DROP','AND','OR','NOT','IN','IS','NULL','LIKE','BETWEEN','CASE','WHEN','THEN','ELSE','END'];
 
-  const SETTINGS_KEY = 'sqlgame_ui_settings_v1';
-  let uiSettings = { fontScale: 100, highContrast: false };
+async function api(url,opts={}){const headers=opts.headers||{};const hasBody=typeof opts.body!=='undefined';const req={...opts,headers:{...headers}};if(hasBody&&typeof opts.body==='object'&&!(opts.body instanceof FormData)){req.body=JSON.stringify(opts.body);req.headers['Content-Type']='application/json';}const res=await fetch(url,req);const json=await res.json();if(!res.ok) throw new Error(json.error||'Request failed');return json;}
+function escapeHtml(t){return (t||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
+function highlightSql(sql){let h=escapeHtml(sql||'');h=h.replace(/\b(count|sum|avg|min|max|coalesce|substring|lower|upper)\s*\(/gi,'<span class="sql-fn">$1</span>(');const kwRegex=new RegExp(`\\b(${KEYWORDS.join('|')})\\b`,'gi');h=h.replace(kwRegex,'<span class="sql-kw">$1</span>');return h+'\n';}
+function bindEditor(textareaId,highlightId){const textarea=document.getElementById(textareaId);const highlight=document.getElementById(highlightId);const sync=()=>{highlight.innerHTML=highlightSql(textarea.value);highlight.scrollTop=textarea.scrollTop;highlight.scrollLeft=textarea.scrollLeft;};textarea.addEventListener('input',sync);textarea.addEventListener('scroll',()=>{highlight.scrollTop=textarea.scrollTop;highlight.scrollLeft=textarea.scrollLeft;});textarea.addEventListener('keydown',(e)=>{if(e.key==='Tab'){e.preventDefault();const s=textarea.selectionStart,e2=textarea.selectionEnd;textarea.value=textarea.value.slice(0,s)+'  '+textarea.value.slice(e2);textarea.selectionStart=textarea.selectionEnd=s+2;sync();}});sync();return {textarea,sync};}
+const sqlEditor=bindEditor('sql','sqlHighlight'); const sandboxEditor=bindEditor('sandboxSql','sandboxHighlight');
+function renderTable(target,q){if(!q||!q.columns) return target.innerHTML=''; if(q.error) return target.innerHTML=`<div class='err'>${q.error}</div>`; const head='<tr>'+q.columns.map(c=>`<th>${escapeHtml(String(c))}</th>`).join('')+'</tr>'; const rows=q.rows.map(r=>'<tr>'+r.map(c=>`<td>${escapeHtml(String(c??''))}</td>`).join('')+'</tr>').join(''); target.innerHTML=`<table>${head}${rows}</table>`;}
+function isLevelLocked(levelId){return !unlockedLevels.has(levelId);} 
+function renderLevels(){const wrap=document.getElementById('levels');wrap.innerHTML='';levels.forEach(l=>{const done=completedLevels.has(l.id),locked=isLevelLocked(l.id);const div=document.createElement('div');div.className=`level ${locked?'locked':''}`;div.id=`level-${l.id}`;div.innerHTML=`<span class="level-main">${escapeHtml(l.id)} · ${escapeHtml(l.title)} (${escapeHtml(l.difficulty)})</span><span class="level-meta"><span class="${done?'check':(locked?'lock':'muted')}">${done?'✓':(locked?'🔒':'🔓')}</span></span>`;div.onclick=()=>{if(!locked) pickLevel(l.id)};wrap.appendChild(div);});}
+async function loadProgress(){const p=await api('/api/progress');completedLevels=new Set(p.completedLevels||[]);document.getElementById('progress').innerText=`XP: ${p.totalXp} | Player Level: ${Math.max(1,Math.floor(p.totalXp/250)+1)}\nCompleted: ${completedLevels.size}`;}
+async function loadUnlockedLevels(){try{const out=await api('/api/levels/unlocked');const unlocked=Array.isArray(out)?out:(out.unlockedLevels||[]);if(unlocked.length){unlockedLevels=new Set(unlocked);return;}}catch(_){ } unlockedLevels=new Set(levels.map(l=>l.id));}
+async function loadLevels(){levels=await api('/api/levels');await loadProgress();await loadUnlockedLevels();renderLevels();const firstUnlocked=levels.find(l=>unlockedLevels.has(l.id));if(firstUnlocked) pickLevel(firstUnlocked.id);}
 
-  const KEYWORDS = [
-    'SELECT','FROM','WHERE','JOIN','INNER','LEFT','RIGHT','FULL','ON','GROUP','BY','ORDER','HAVING',
-    'AS','DISTINCT','LIMIT','OFFSET','INSERT','INTO','VALUES','UPDATE','SET','DELETE','CREATE','TABLE',
-    'ALTER','DROP','AND','OR','NOT','IN','IS','NULL','LIKE','BETWEEN','CASE','WHEN','THEN','ELSE','END'
-  ];
+function renderLeaderboardList(listId,emptyId,rows,rowHtml){const list=document.getElementById(listId),empty=document.getElementById(emptyId);list.innerHTML='';const data=Array.isArray(rows)?rows:[];if(!data.length){empty.style.display='block';return;}empty.style.display='none';data.forEach(e=>{const li=document.createElement('li');li.innerHTML=rowHtml(e);list.appendChild(li);});}
+async function loadLeaderboard(){try{const [globalRows,levelRows]=await Promise.all([api('/api/leaderboard/top-players?limit=8').catch(()=>api('/api/leaderboard/top?limit=8')),current?api(`/api/leaderboard/top?limit=8&levelId=${encodeURIComponent(current.id)}`):Promise.resolve([])]);
+renderLeaderboardList('leaderboardGlobalList','leaderboardGlobalEmpty',globalRows,e=>`<strong>${escapeHtml(e.nickname||'Anonymous')}</strong> — ${e.score} <span class='muted'>best: ${escapeHtml(e.levelId||'n/a')}</span>`);
+renderLeaderboardList('leaderboardLevelList','leaderboardLevelEmpty',levelRows,e=>`<strong>${escapeHtml(e.nickname||'Anonymous')}</strong> — ${e.score}`);}catch{document.getElementById('leaderboardGlobalEmpty').innerText='Leaderboard unavailable.';document.getElementById('leaderboardGlobalEmpty').style.display='block';document.getElementById('leaderboardLevelEmpty').innerText='Leaderboard unavailable.';document.getElementById('leaderboardLevelEmpty').style.display='block';}}
 
-  async function api(url, opts = {}) {
-    const headers = opts.headers || {};
-    const hasBody = typeof opts.body !== 'undefined';
-    const request = { ...opts, headers: { ...headers } };
+function renderPlayerCard(){const label=document.getElementById('playerIdLabel');const input=document.getElementById('profileNicknameInput');if(!localPlayer){label.innerText='Local account unavailable';input.value='';return;}label.innerText=`Local account: ${localPlayer.playerId.slice(0,8)}`;input.value=localPlayer.nickname||'';}
+async function loadPlayer(){localPlayer=await api('/api/player');renderPlayerCard();}
+async function savePlayerNickname(){const input=document.getElementById('profileNicknameInput');const status=document.getElementById('profileStatus');const nickname=(input.value||'').trim();if(!nickname){status.innerHTML=`<span class='err'>Nickname cannot be blank.</span>`;return;}try{const out=await api('/api/player',{method:'POST',body:{nickname}});localPlayer=out.player || out || localPlayer;renderPlayerCard();status.innerHTML=`<span class='ok'>Profile saved.</span>`;await loadLeaderboard();}catch(e){status.innerHTML=`<span class='err'>${escapeHtml(e.message||'Save failed')}</span>`;}}
 
-    if (hasBody && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
-      request.body = JSON.stringify(opts.body);
-      request.headers['Content-Type'] = 'application/json';
-    }
+async function loadSchema(levelId){const schema=document.getElementById('schema');schema.innerHTML='<span class="muted">Loading schema...</span>';try{const out=await api(`/api/levels/${levelId}/schema`);const tables=Array.isArray(out)?out:(out.tables||[]);if(!tables.length){schema.innerHTML='<span class="muted">No schema objects found.</span>';return;}schema.innerHTML=tables.map(t=>`<div class="schema-table"><h5>${escapeHtml(t.name)}</h5>${(t.columns||[]).map(c=>`<div class="schema-col"><span>${escapeHtml(c.name)}</span><span class="nullable">${escapeHtml(c.type)}${c.nullable==='YES'?'':' · NOT NULL'}</span></div>`).join('')}</div>`).join('');}catch{schema.innerHTML='<span class="err">Failed to load schema.</span>';}}
+function updateSubmitPanel(){const panel=document.getElementById('submitScorePanel'),meta=document.getElementById('submitScoreMeta'),status=document.getElementById('submitScoreStatus');if(!pendingScoreSubmission){panel.style.display='none';status.innerText='';return;}panel.style.display='block';meta.innerText=`${pendingScoreSubmission.levelId} · score ${pendingScoreSubmission.score}`;}
+function isAdvancedLevel(level){return ['level-11','level-12','level-13','level-14','level-15'].includes(level?.id);}function updateHintState(){const lock=document.getElementById('hintLock'),btn=document.getElementById('hintBtn');if(!current) return;const gated=isAdvancedLevel(current)&&currentAttempts===0;btn.disabled=gated;lock.innerText=gated?'Run once to unlock hints':'';}
+function renderExplanation(){const box=document.getElementById('explanation');if(!current?.explanationSnippet){box.style.display='none';box.innerHTML='';return;}box.style.display='block';box.innerHTML='<strong>Why this works</strong><div class="muted" style="margin-top:4px;">'+escapeHtml(current.explanationSnippet)+'</div>';}
 
-    const res = await fetch(url, request);
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error || 'Request failed');
-    return json;
-  }
+async function pickLevel(id){current=await api('/api/levels/'+id);await loadLeaderboard();hintIndex=0;document.querySelectorAll('.level').forEach(e=>e.classList.remove('active'));document.getElementById('level-'+id)?.classList.add('active');document.getElementById('title').innerText=`${current.id}: ${current.title}`;currentAttempts=attemptsByLevel[current.id]||0;document.getElementById('objective').innerText=current.objective;document.getElementById('objectiveCue').innerText=current.objectiveCue?'Focus cue: '+current.objectiveCue:'';document.getElementById('prompt').innerText=current.prompt;document.getElementById('hint').innerText='';renderExplanation();updateHintState();sqlEditor.textarea.value='-- write your query here';sqlEditor.sync();document.getElementById('feedback').innerHTML=`<span class='muted'>Allowed: ${current.allowedCommands.join(', ')}</span>`;document.getElementById('result').innerHTML='';document.getElementById('achievements').style.display='none';document.getElementById('achievements').innerHTML='';await loadSchema(id);}
 
-  function escapeHtml(text) {
-    return (text || '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;');
-  }
+document.getElementById('runBtn').onclick=async()=>{if(!current) return;attemptsByLevel[current.id]=(attemptsByLevel[current.id]||0)+1;currentAttempts=attemptsByLevel[current.id];updateHintState();const out=await api(`/api/levels/${current.id}/run`,{method:'POST',body:sqlEditor.textarea.value});document.getElementById('feedback').innerHTML=out.success?`<div class='ok'>${escapeHtml(out.feedback)} (+${out.xpAwarded} XP, score ${out.score})</div>`:`<div class='err'>${escapeHtml(out.feedback)}</div>`;const unlocked=out.unlockedAchievements||[];const achievements=document.getElementById('achievements');if(unlocked.length){achievements.style.display='block';achievements.innerHTML=`<strong>Achievements unlocked</strong><ul>${unlocked.map(a=>`<li>${escapeHtml(a)}</li>`).join('')}</ul>`;}else{achievements.style.display='none';achievements.innerHTML='';}if(out.success){pendingScoreSubmission={levelId:current.id,score:out.score};}else if(isAdvancedLevel(current)&&currentAttempts>=2&&!document.getElementById('hint').innerText&&current.hints?.length){document.getElementById('hint').innerText='Starter nudge: '+current.hints[0];hintIndex=1;}updateSubmitPanel();renderTable(document.getElementById('result'),out.playerResult);await loadProgress();await loadUnlockedLevels();renderLevels();if(current) document.getElementById(`level-${current.id}`)?.classList.add('active');};
 
-  function highlightSql(sqlText) {
-    let html = escapeHtml(sqlText || '');
-    html = html.replace(/\b(count|sum|avg|min|max|coalesce|substring|lower|upper)\s*\(/gi, '<span class="sql-fn">$1</span>(');
-    const kwRegex = new RegExp(`\\b(${KEYWORDS.join('|')})\\b`, 'gi');
-    html = html.replace(kwRegex, '<span class="sql-kw">$1</span>');
-    return html + '\n';
-  }
+document.getElementById('submitScoreBtn').onclick=async()=>{if(!pendingScoreSubmission) return;const status=document.getElementById('submitScoreStatus');try{await api('/api/leaderboard/submit',{method:'POST',body:{nickname:localPlayer?.nickname,score:pendingScoreSubmission.score,levelId:pendingScoreSubmission.levelId}});status.innerHTML=`<span class='ok'>Score submitted.</span>`;pendingScoreSubmission=null;updateSubmitPanel();await loadLeaderboard();}catch(e){status.innerHTML=`<span class='err'>${escapeHtml(e.message||'Submit failed')}</span>`;}};
 
-  function bindEditor(textareaId, highlightId) {
-    const textarea = document.getElementById(textareaId);
-    const highlight = document.getElementById(highlightId);
+document.getElementById('resetBtn').onclick=async()=>{if(!current) return;await api(`/api/levels/${current.id}/reset`,{method:'POST'});document.getElementById('feedback').innerHTML="<span class='muted'>Level database reset.</span>";await loadSchema(current.id);};
+document.getElementById('hintBtn').onclick=()=>{if(!current||!current.hints?.length||document.getElementById('hintBtn').disabled) return;const index=Math.min(hintIndex,current.hints.length-1);const label='Hint '+(index+1)+'/'+current.hints.length;document.getElementById('hint').innerText=label+': '+current.hints[index];hintIndex++;};
+document.getElementById('sandboxBtn').onclick=async()=>{const out=await api('/api/sandbox/run',{method:'POST',body:sandboxEditor.textarea.value});if(out.error){document.getElementById('sandboxResult').innerHTML=`<div class='err'>${escapeHtml(out.error)}</div>`;return;}renderTable(document.getElementById('sandboxResult'),out);};
+document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();document.getElementById('runBtn').onclick();}});
 
-    const sync = () => {
-      highlight.innerHTML = highlightSql(textarea.value);
-      highlight.scrollTop = textarea.scrollTop;
-      highlight.scrollLeft = textarea.scrollLeft;
-    };
+function loadSettings(){try{const raw=localStorage.getItem(SETTINGS_KEY);if(!raw)return;const p=JSON.parse(raw);uiSettings={fontScale:Math.max(85,Math.min(130,Number(p.fontScale)||100)),highContrast:!!p.highContrast};}catch(_){uiSettings={fontScale:100,highContrast:false};}}
+function saveSettings(){localStorage.setItem(SETTINGS_KEY,JSON.stringify(uiSettings));}
+function applySettings(){document.documentElement.style.fontSize=`${uiSettings.fontScale}%`;document.documentElement.classList.toggle('hc',uiSettings.highContrast);document.getElementById('fontLabel').innerText=`${uiSettings.fontScale}%`;document.getElementById('contrastBtn').innerText=uiSettings.highContrast?'On':'Off';}
+document.getElementById('fontDownBtn').onclick=()=>{uiSettings.fontScale=Math.max(85,uiSettings.fontScale-5);saveSettings();applySettings();};
+document.getElementById('fontUpBtn').onclick=()=>{uiSettings.fontScale=Math.min(130,uiSettings.fontScale+5);saveSettings();applySettings();};
+document.getElementById('contrastBtn').onclick=()=>{uiSettings.highContrast=!uiSettings.highContrast;saveSettings();applySettings();};
+document.getElementById('saveProfileBtn').onclick=savePlayerNickname;
 
-    textarea.addEventListener('input', sync);
-    textarea.addEventListener('scroll', () => {
-      highlight.scrollTop = textarea.scrollTop;
-      highlight.scrollLeft = textarea.scrollLeft;
-    });
-    textarea.addEventListener('keydown', (e) => {
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        textarea.value = textarea.value.slice(0, start) + '  ' + textarea.value.slice(end);
-        textarea.selectionStart = textarea.selectionEnd = start + 2;
-        sync();
-      }
-    });
-
-    sync();
-    return { textarea, sync };
-  }
-
-  const sqlEditor = bindEditor('sql', 'sqlHighlight');
-  const sandboxEditor = bindEditor('sandboxSql', 'sandboxHighlight');
-
-  function renderTable(target, q) {
-    if (!q || !q.columns) return target.innerHTML = '';
-    if (q.error) return target.innerHTML = `<div class='err'>${q.error}</div>`;
-    const head = '<tr>' + q.columns.map(c => `<th>${escapeHtml(String(c))}</th>`).join('') + '</tr>';
-    const rows = q.rows.map(r => '<tr>' + r.map(c => `<td>${escapeHtml(String(c ?? ''))}</td>`).join('') + '</tr>').join('');
-    target.innerHTML = `<table>${head}${rows}</table>`;
-  }
-
-  function isLevelLocked(levelId) {
-    return !unlockedLevels.has(levelId);
-  }
-
-  function renderLevels() {
-    const wrap = document.getElementById('levels');
-    wrap.innerHTML = '';
-    levels.forEach(l => {
-      const done = completedLevels.has(l.id);
-      const locked = isLevelLocked(l.id);
-      const div = document.createElement('div');
-      div.className = `level ${locked ? 'locked' : ''}`;
-      div.id = `level-${l.id}`;
-      div.innerHTML = `
-        <span class="level-main">${escapeHtml(l.id)} · ${escapeHtml(l.title)} (${escapeHtml(l.difficulty)})</span>
-        <span class="level-meta">
-          <span class="${done ? 'check' : (locked ? 'lock' : 'muted')}">${done ? '✓' : (locked ? '🔒' : '🔓')}</span>
-        </span>
-      `;
-      div.onclick = () => {
-        if (locked) return;
-        pickLevel(l.id);
-      };
-      wrap.appendChild(div);
-    });
-  }
-
-  async function loadProgress() {
-    const p = await api('/api/progress');
-    completedLevels = new Set(p.completedLevels || []);
-    document.getElementById('progress').innerText = `XP: ${p.totalXp} | Player Level: ${Math.max(1, Math.floor(p.totalXp/250)+1)}\nCompleted: ${completedLevels.size}`;
-  }
-
-  async function loadUnlockedLevels() {
-    try {
-      const out = await api('/api/levels/unlocked');
-      const unlocked = Array.isArray(out) ? out : (out.unlockedLevels || []);
-      if (unlocked.length) {
-        unlockedLevels = new Set(unlocked);
-        return;
-      }
-    } catch (_) {
-      // backend may not support endpoint yet; fallback below
-    }
-    unlockedLevels = new Set(levels.map(l => l.id));
-  }
-
-  async function loadLevels() {
-    levels = await api('/api/levels');
-    await loadProgress();
-    await loadUnlockedLevels();
-    renderLevels();
-
-    const firstUnlocked = levels.find(l => unlockedLevels.has(l.id));
-    if (firstUnlocked) pickLevel(firstUnlocked.id);
-  }
-
-  async function loadLeaderboard() {
-    try {
-      const rows = await api('/api/leaderboard/top');
-      const list = document.getElementById('leaderboardList');
-      const empty = document.getElementById('leaderboardEmpty');
-      list.innerHTML = '';
-      const data = Array.isArray(rows) ? rows : [];
-      if (!data.length) {
-        empty.style.display = 'block';
-        return;
-      }
-      empty.style.display = 'none';
-      data.forEach((e) => {
-        const li = document.createElement('li');
-        li.innerHTML = `<strong>${escapeHtml(e.nickname || 'Anonymous')}</strong> — ${e.score} <span class='muted'>(${escapeHtml(e.levelId || 'n/a')})</span>`;
-        list.appendChild(li);
-      });
-    } catch {
-      document.getElementById('leaderboardEmpty').innerText = 'Leaderboard unavailable.';
-      document.getElementById('leaderboardEmpty').style.display = 'block';
-    }
-  }
-
-  async function loadSchema(levelId) {
-    const schema = document.getElementById('schema');
-    schema.innerHTML = '<span class="muted">Loading schema...</span>';
-    try {
-      const out = await api(`/api/levels/${levelId}/schema`);
-      const tables = Array.isArray(out) ? out : (out.tables || []);
-      if (!tables.length) {
-        schema.innerHTML = '<span class="muted">No schema objects found.</span>';
-        return;
-      }
-      schema.innerHTML = tables.map(t => `
-        <div class="schema-table">
-          <h5>${escapeHtml(t.name)}</h5>
-          ${(t.columns || []).map(c => `
-            <div class="schema-col">
-              <span>${escapeHtml(c.name)}</span>
-              <span class="nullable">${escapeHtml(c.type)}${c.nullable === 'YES' ? '' : ' · NOT NULL'}</span>
-            </div>
-          `).join('')}
-        </div>
-      `).join('');
-    } catch {
-      schema.innerHTML = '<span class="err">Failed to load schema.</span>';
-    }
-  }
-
-  function updateSubmitPanel() {
-    const panel = document.getElementById('submitScorePanel');
-    const meta = document.getElementById('submitScoreMeta');
-    const status = document.getElementById('submitScoreStatus');
-    if (!pendingScoreSubmission) {
-      panel.style.display = 'none';
-      status.innerText = '';
-      return;
-    }
-    panel.style.display = 'block';
-    meta.innerText = `${pendingScoreSubmission.levelId} · score ${pendingScoreSubmission.score}`;
-  }
-
-  function isAdvancedLevel(level) {
-    return level?.id === 'level-11' || level?.id === 'level-12' || level?.id === 'level-13' || level?.id === 'level-14' || level?.id === 'level-15';
-  }
-
-  function updateHintState() {
-    const lock = document.getElementById('hintLock');
-    const btn = document.getElementById('hintBtn');
-    if (!current) return;
-    const gated = isAdvancedLevel(current) && currentAttempts === 0;
-    btn.disabled = gated;
-    lock.innerText = gated ? 'Run once to unlock hints' : '';
-  }
-
-  function renderExplanation() {
-    const box = document.getElementById('explanation');
-    if (!current?.explanationSnippet) {
-      box.style.display = 'none';
-      box.innerHTML = '';
-      return;
-    }
-    box.style.display = 'block';
-    box.innerHTML = '<strong>Why this works</strong><div class="muted" style="margin-top:4px;">' + escapeHtml(current.explanationSnippet) + '</div>';
-  }
-
-  async function pickLevel(id) {
-    current = await api('/api/levels/' + id);
-    hintIndex = 0;
-    document.querySelectorAll('.level').forEach(e => e.classList.remove('active'));
-    document.getElementById('level-' + id)?.classList.add('active');
-    document.getElementById('title').innerText = `${current.id}: ${current.title}`;
-    currentAttempts = attemptsByLevel[current.id] || 0;
-    document.getElementById('objective').innerText = current.objective;
-    document.getElementById('objectiveCue').innerText = current.objectiveCue ? 'Focus cue: ' + current.objectiveCue : '';
-    document.getElementById('prompt').innerText = current.prompt;
-    document.getElementById('hint').innerText = '';
-    renderExplanation();
-    updateHintState();
-    sqlEditor.textarea.value = '-- write your query here';
-    sqlEditor.sync();
-    document.getElementById('feedback').innerHTML = `<span class='muted'>Allowed: ${current.allowedCommands.join(', ')}</span>`;
-    document.getElementById('result').innerHTML = '';
-    document.getElementById('achievements').style.display = 'none';
-    document.getElementById('achievements').innerHTML = '';
-    await loadSchema(id);
-  }
-
-  document.getElementById('runBtn').onclick = async () => {
-    if (!current) return;
-    attemptsByLevel[current.id] = (attemptsByLevel[current.id] || 0) + 1;
-    currentAttempts = attemptsByLevel[current.id];
-    updateHintState();
-    const out = await api(`/api/levels/${current.id}/run`, { method:'POST', body: sqlEditor.textarea.value });
-    document.getElementById('feedback').innerHTML = out.success
-      ? `<div class='ok'>${escapeHtml(out.feedback)} (+${out.xpAwarded} XP, score ${out.score})</div>`
-      : `<div class='err'>${escapeHtml(out.feedback)}</div>`;
-
-    const unlocked = out.unlockedAchievements || [];
-    const achievements = document.getElementById('achievements');
-    if (unlocked.length) {
-      achievements.style.display = 'block';
-      achievements.innerHTML = `
-        <strong>Achievements unlocked</strong>
-        <ul>${unlocked.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
-      `;
-    } else {
-      achievements.style.display = 'none';
-      achievements.innerHTML = '';
-    }
-
-    if (out.success) {
-      pendingScoreSubmission = { levelId: current.id, score: out.score };
-    } else if (isAdvancedLevel(current) && currentAttempts >= 2 && !document.getElementById('hint').innerText && current.hints?.length) {
-      document.getElementById('hint').innerText = 'Starter nudge: ' + current.hints[0];
-      hintIndex = 1;
-    }
-    updateSubmitPanel();
-
-    renderTable(document.getElementById('result'), out.playerResult);
-    await loadProgress();
-    await loadUnlockedLevels();
-    renderLevels();
-    if (current) document.getElementById(`level-${current.id}`)?.classList.add('active');
-  };
-
-  document.getElementById('submitScoreBtn').onclick = async () => {
-    if (!pendingScoreSubmission) return;
-    const nicknameInput = document.getElementById('nicknameInput');
-    const status = document.getElementById('submitScoreStatus');
-    const nickname = (nicknameInput.value || '').trim() || 'Anonymous';
-
-    try {
-      await api('/api/leaderboard/submit', {
-        method: 'POST',
-        body: {
-          nickname,
-          score: pendingScoreSubmission.score,
-          levelId: pendingScoreSubmission.levelId
-        }
-      });
-      status.innerHTML = `<span class='ok'>Score submitted.</span>`;
-      pendingScoreSubmission = null;
-      updateSubmitPanel();
-      nicknameInput.value = '';
-      await loadLeaderboard();
-    } catch (e) {
-      status.innerHTML = `<span class='err'>${escapeHtml(e.message || 'Submit failed')}</span>`;
-    }
-  };
-
-  document.getElementById('resetBtn').onclick = async () => {
-    if (!current) return;
-    await api(`/api/levels/${current.id}/reset`, { method: 'POST' });
-    document.getElementById('feedback').innerHTML = "<span class='muted'>Level database reset.</span>";
-    await loadSchema(current.id);
-  };
-
-  document.getElementById('hintBtn').onclick = () => {
-    if (!current || !current.hints?.length) return;
-    if (document.getElementById('hintBtn').disabled) return;
-    const index = Math.min(hintIndex, current.hints.length - 1);
-    const label = 'Hint ' + (index + 1) + '/' + current.hints.length;
-    document.getElementById('hint').innerText = label + ': ' + current.hints[index];
-    hintIndex++;
-  };
-
-  document.getElementById('sandboxBtn').onclick = async () => {
-    const out = await api('/api/sandbox/run', { method:'POST', body: sandboxEditor.textarea.value });
-    if (out.error) {
-      document.getElementById('sandboxResult').innerHTML = `<div class='err'>${escapeHtml(out.error)}</div>`;
-      return;
-    }
-    renderTable(document.getElementById('sandboxResult'), out);
-  };
-
-  document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('runBtn').onclick();
-    }
-  });
-
-  function loadSettings() {
-    try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      uiSettings = {
-        fontScale: Math.max(85, Math.min(130, Number(parsed.fontScale) || 100)),
-        highContrast: !!parsed.highContrast
-      };
-    } catch (_) {
-      uiSettings = { fontScale: 100, highContrast: false };
-    }
-  }
-
-  function saveSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(uiSettings));
-  }
-
-  function applySettings() {
-    document.documentElement.style.fontSize = `${uiSettings.fontScale}%`;
-    document.documentElement.classList.toggle('hc', uiSettings.highContrast);
-    document.getElementById('fontLabel').innerText = `${uiSettings.fontScale}%`;
-    document.getElementById('contrastBtn').innerText = uiSettings.highContrast ? 'On' : 'Off';
-  }
-
-  document.getElementById('fontDownBtn').onclick = () => {
-    uiSettings.fontScale = Math.max(85, uiSettings.fontScale - 5);
-    saveSettings();
-    applySettings();
-  };
-
-  document.getElementById('fontUpBtn').onclick = () => {
-    uiSettings.fontScale = Math.min(130, uiSettings.fontScale + 5);
-    saveSettings();
-    applySettings();
-  };
-
-  document.getElementById('contrastBtn').onclick = () => {
-    uiSettings.highContrast = !uiSettings.highContrast;
-    saveSettings();
-    applySettings();
-  };
-
-  loadSettings();
-  applySettings();
-  updateSubmitPanel();
-  loadLeaderboard();
-  loadLevels();
+loadSettings();applySettings();updateSubmitPanel();
+(async()=>{try{await loadPlayer();}catch{document.getElementById('profileStatus').innerHTML="<span class='err'>Failed to load local profile.</span>";}await loadLeaderboard();await loadLevels();})();
 </script>
 </body>
 </html>
