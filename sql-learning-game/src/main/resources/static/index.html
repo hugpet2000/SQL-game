@@ -5,19 +5,59 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SQL Learning Game</title>
   <style>
-    :root { color-scheme: dark; }
+    :root {
+      color-scheme: dark;
+      --bg: #111827;
+      --bg-soft: #0f172a;
+      --panel: #0b1220;
+      --border: #253046;
+      --border-soft: #334155;
+      --text: #f3f4f6;
+      --muted: #94a3b8;
+      --primary: #4f46e5;
+      --primary-soft: #1b2440;
+      --ok: #4ade80;
+      --err: #fb7185;
+      --fn: #22d3ee;
+      --kw: #a78bfa;
+      --locked: #64748b;
+    }
+    :root.hc {
+      --bg: #000000;
+      --bg-soft: #05080f;
+      --panel: #000000;
+      --border: #9ca3af;
+      --border-soft: #cbd5e1;
+      --text: #ffffff;
+      --muted: #d1d5db;
+      --primary: #60a5fa;
+      --primary-soft: #1e293b;
+      --ok: #86efac;
+      --err: #fca5a5;
+      --fn: #67e8f9;
+      --kw: #c4b5fd;
+      --locked: #9ca3af;
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: #111827; color: #f3f4f6; }
-    .app { display: grid; grid-template-columns: 300px 1fr; min-height: 100vh; }
-    .sidebar { background: #0b1220; border-right: 1px solid #1f2937; padding: 16px; }
+    body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--text); }
+    .app { display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
+    .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 16px; display:flex; flex-direction:column; gap:12px; }
     .main { padding: 16px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 12px; }
-    .card { background: #111827; border: 1px solid #253046; border-radius: 10px; padding: 12px; }
-    .level { cursor: pointer; padding: 8px; border-radius: 8px; border: 1px solid transparent; margin-bottom: 6px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-    .level:hover, .active { border-color: #4f46e5; background: #1b2440; }
+    .card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+    .subtle-card { background: var(--bg-soft); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px; }
+    .level {
+      cursor: pointer; padding: 8px; border-radius: 8px; border: 1px solid transparent; margin-bottom: 6px;
+      display:flex; align-items:center; justify-content:space-between; gap:8px;
+    }
+    .level:hover, .active { border-color: var(--primary); background: var(--primary-soft); }
     .level-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .check { color:#4ade80; font-weight:700; }
+    .level-meta { display:flex; align-items:center; gap:8px; }
+    .check { color: var(--ok); font-weight:700; }
+    .lock { color: var(--locked); font-weight:700; }
+    .level.locked { opacity: 0.55; cursor: not-allowed; }
+    .level.locked:hover { border-color: transparent; background: transparent; }
     .editor-layout { display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:start; }
-    .editor-box { position: relative; border: 1px solid #334155; border-radius: 8px; overflow: hidden; background: #0f172a; }
+    .editor-box { position: relative; border: 1px solid var(--border-soft); border-radius: 8px; overflow: hidden; background: var(--bg-soft); }
     .editor-box pre, .editor-box textarea {
       margin: 0; width: 100%; min-height: 220px; padding: 10px;
       font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -28,32 +68,66 @@
       position: absolute; inset: 0; border: 0; resize: vertical;
       background: transparent; color: transparent; caret-color: #e5e7eb;
     }
-    .sql-kw { color: #a78bfa; font-weight: 600; }
-    .sql-fn { color: #22d3ee; }
+    .sql-kw { color: var(--kw); font-weight: 600; }
+    .sql-fn { color: var(--fn); }
     .schema-wrap { max-height: 260px; overflow: auto; }
-    .schema-table { border: 1px solid #334155; border-radius: 8px; padding: 8px; margin-bottom: 8px; background:#0f172a; }
+    .schema-table { border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: var(--bg-soft); }
     .schema-table h5 { margin: 0 0 6px 0; color: #93c5fd; }
     .schema-col { display:flex; justify-content:space-between; gap:6px; font-family: ui-monospace, monospace; font-size: 12px; padding:2px 0; }
-    .nullable { color: #94a3b8; }
-    button { background: #4f46e5; border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+    .nullable { color: var(--muted); }
+    button { background: var(--primary); border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
     button.secondary { background: #334155; }
+    button.tiny { padding: 4px 8px; font-size: 12px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    input[type="text"] { width:100%; background: var(--bg-soft); color: var(--text); border:1px solid var(--border-soft); border-radius: 6px; padding: 6px 8px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { border: 1px solid #334155; padding: 6px; }
-    .muted { color: #94a3b8; font-size: 13px; }
-    .ok { color: #4ade80; }
-    .err { color: #fb7185; }
-    .achievements { margin-top: 10px; padding: 8px; border:1px solid #334155; border-radius:8px; background:#0f172a; }
+    th, td { border: 1px solid var(--border-soft); padding: 6px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .ok { color: var(--ok); }
+    .err { color: var(--err); }
+    .achievements { margin-top: 10px; padding: 8px; border:1px solid var(--border-soft); border-radius:8px; background: var(--bg-soft); }
     .achievements ul { margin: 6px 0 0 18px; padding: 0; }
+    .leaderboard-list { margin: 8px 0 0 16px; padding: 0; font-size: 13px; }
+    .leaderboard-list li { margin-bottom: 4px; }
+    .settings-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
+    .pill { font-size: 12px; color: var(--muted); border:1px solid var(--border-soft); border-radius: 999px; padding:2px 8px; }
   </style>
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
-    <h3>SQL Learning Game</h3>
-    <div id="progress" class="muted">Loading progress...</div>
-    <hr />
+    <div>
+      <h3 style="margin:0 0 8px 0;">SQL Learning Game</h3>
+      <div id="progress" class="muted">Loading progress...</div>
+    </div>
+
+    <div class="subtle-card">
+      <strong>Settings</strong>
+      <div class="settings-row">
+        <span class="muted">Font size</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button id="fontDownBtn" class="secondary tiny">A-</button>
+          <span id="fontLabel" class="pill">100%</span>
+          <button id="fontUpBtn" class="secondary tiny">A+</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <span class="muted">High contrast</span>
+        <button id="contrastBtn" class="secondary tiny">Off</button>
+      </div>
+    </div>
+
+    <div class="subtle-card">
+      <strong>Leaderboard</strong>
+      <div class="muted">Top mission scores</div>
+      <ol id="leaderboardList" class="leaderboard-list"></ol>
+      <div id="leaderboardEmpty" class="muted">No scores yet. Be first.</div>
+    </div>
+
+    <hr style="border-color:var(--border); width:100%;" />
     <div id="levels"></div>
   </aside>
+
   <main class="main">
     <section class="card">
       <h2 id="title">Pick a mission</h2>
@@ -81,6 +155,17 @@
 
     <section class="card">
       <div id="feedback" class="muted">Ready.</div>
+      <div id="submitScorePanel" class="subtle-card" style="margin-top:8px;display:none;">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+          <strong>Submit score</strong>
+          <span id="submitScoreMeta" class="muted"></span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+          <input id="nicknameInput" type="text" maxlength="20" placeholder="Nickname (max 20)" />
+          <button id="submitScoreBtn">Submit</button>
+        </div>
+        <div id="submitScoreStatus" class="muted" style="margin-top:6px;"></div>
+      </div>
       <div id="achievements" class="achievements" style="display:none;"></div>
       <div id="result"></div>
     </section>
@@ -102,6 +187,11 @@
   let current = null;
   let hintIndex = 0;
   let completedLevels = new Set();
+  let unlockedLevels = new Set();
+  let pendingScoreSubmission = null;
+
+  const SETTINGS_KEY = 'sqlgame_ui_settings_v1';
+  let uiSettings = { fontScale: 100, highContrast: false };
 
   const KEYWORDS = [
     'SELECT','FROM','WHERE','JOIN','INNER','LEFT','RIGHT','FULL','ON','GROUP','BY','ORDER','HAVING',
@@ -110,11 +200,23 @@
   ];
 
   async function api(url, opts = {}) {
-    return fetch(url, opts).then(r => r.json());
+    const headers = opts.headers || {};
+    const hasBody = typeof opts.body !== 'undefined';
+    const request = { ...opts, headers: { ...headers } };
+
+    if (hasBody && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+      request.body = JSON.stringify(opts.body);
+      request.headers['Content-Type'] = 'application/json';
+    }
+
+    const res = await fetch(url, request);
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Request failed');
+    return json;
   }
 
   function escapeHtml(text) {
-    return text
+    return (text || '')
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;');
@@ -164,23 +266,34 @@
   function renderTable(target, q) {
     if (!q || !q.columns) return target.innerHTML = '';
     if (q.error) return target.innerHTML = `<div class='err'>${q.error}</div>`;
-    const head = '<tr>' + q.columns.map(c => `<th>${c}</th>`).join('') + '</tr>';
-    const rows = q.rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('');
+    const head = '<tr>' + q.columns.map(c => `<th>${escapeHtml(String(c))}</th>`).join('') + '</tr>';
+    const rows = q.rows.map(r => '<tr>' + r.map(c => `<td>${escapeHtml(String(c ?? ''))}</td>`).join('') + '</tr>').join('');
     target.innerHTML = `<table>${head}${rows}</table>`;
+  }
+
+  function isLevelLocked(levelId) {
+    return !unlockedLevels.has(levelId);
   }
 
   function renderLevels() {
     const wrap = document.getElementById('levels');
     wrap.innerHTML = '';
     levels.forEach(l => {
+      const done = completedLevels.has(l.id);
+      const locked = isLevelLocked(l.id);
       const div = document.createElement('div');
-      div.className = 'level';
-      div.onclick = () => pickLevel(l.id);
+      div.className = `level ${locked ? 'locked' : ''}`;
       div.id = `level-${l.id}`;
       div.innerHTML = `
-        <span class="level-main">${l.id} · ${l.title} (${l.difficulty})</span>
-        <span class="check">${completedLevels.has(l.id) ? '✓' : ''}</span>
+        <span class="level-main">${escapeHtml(l.id)} · ${escapeHtml(l.title)} (${escapeHtml(l.difficulty)})</span>
+        <span class="level-meta">
+          <span class="${done ? 'check' : (locked ? 'lock' : 'muted')}">${done ? '✓' : (locked ? '🔒' : '🔓')}</span>
+        </span>
       `;
+      div.onclick = () => {
+        if (locked) return;
+        pickLevel(l.id);
+      };
       wrap.appendChild(div);
     });
   }
@@ -189,25 +302,60 @@
     const p = await api('/api/progress');
     completedLevels = new Set(p.completedLevels || []);
     document.getElementById('progress').innerText = `XP: ${p.totalXp} | Player Level: ${Math.max(1, Math.floor(p.totalXp/250)+1)}\nCompleted: ${completedLevels.size}`;
-    renderLevels();
-    if (current) {
-      const active = document.getElementById(`level-${current.id}`);
-      if (active) active.classList.add('active');
+  }
+
+  async function loadUnlockedLevels() {
+    try {
+      const out = await api('/api/levels/unlocked');
+      const unlocked = Array.isArray(out) ? out : (out.unlockedLevels || []);
+      if (unlocked.length) {
+        unlockedLevels = new Set(unlocked);
+        return;
+      }
+    } catch (_) {
+      // backend may not support endpoint yet; fallback below
     }
+    unlockedLevels = new Set(levels.map(l => l.id));
   }
 
   async function loadLevels() {
     levels = await api('/api/levels');
-    renderLevels();
     await loadProgress();
-    if (levels[0]) pickLevel(levels[0].id);
+    await loadUnlockedLevels();
+    renderLevels();
+
+    const firstUnlocked = levels.find(l => unlockedLevels.has(l.id));
+    if (firstUnlocked) pickLevel(firstUnlocked.id);
+  }
+
+  async function loadLeaderboard() {
+    try {
+      const rows = await api('/api/leaderboard/top');
+      const list = document.getElementById('leaderboardList');
+      const empty = document.getElementById('leaderboardEmpty');
+      list.innerHTML = '';
+      const data = Array.isArray(rows) ? rows : [];
+      if (!data.length) {
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+      data.forEach((e) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${escapeHtml(e.nickname || 'Anonymous')}</strong> — ${e.score} <span class='muted'>(${escapeHtml(e.levelId || 'n/a')})</span>`;
+        list.appendChild(li);
+      });
+    } catch {
+      document.getElementById('leaderboardEmpty').innerText = 'Leaderboard unavailable.';
+      document.getElementById('leaderboardEmpty').style.display = 'block';
+    }
   }
 
   async function loadSchema(levelId) {
     const schema = document.getElementById('schema');
     schema.innerHTML = '<span class="muted">Loading schema...</span>';
     try {
-      const out = await api(`/api/levels//schema`);
+      const out = await api(`/api/levels/${levelId}/schema`);
       const tables = Array.isArray(out) ? out : (out.tables || []);
       if (!tables.length) {
         schema.innerHTML = '<span class="muted">No schema objects found.</span>';
@@ -215,11 +363,11 @@
       }
       schema.innerHTML = tables.map(t => `
         <div class="schema-table">
-          <h5>${t.name}</h5>
+          <h5>${escapeHtml(t.name)}</h5>
           ${(t.columns || []).map(c => `
             <div class="schema-col">
-              <span>${c.name}</span>
-              <span class="nullable">${c.type}${c.nullable === 'YES' ? '' : ' · NOT NULL'}</span>
+              <span>${escapeHtml(c.name)}</span>
+              <span class="nullable">${escapeHtml(c.type)}${c.nullable === 'YES' ? '' : ' · NOT NULL'}</span>
             </div>
           `).join('')}
         </div>
@@ -229,76 +377,170 @@
     }
   }
 
+  function updateSubmitPanel() {
+    const panel = document.getElementById('submitScorePanel');
+    const meta = document.getElementById('submitScoreMeta');
+    const status = document.getElementById('submitScoreStatus');
+    if (!pendingScoreSubmission) {
+      panel.style.display = 'none';
+      status.innerText = '';
+      return;
+    }
+    panel.style.display = 'block';
+    meta.innerText = `${pendingScoreSubmission.levelId} · score ${pendingScoreSubmission.score}`;
+  }
+
   async function pickLevel(id) {
     current = await api('/api/levels/' + id);
     hintIndex = 0;
     document.querySelectorAll('.level').forEach(e => e.classList.remove('active'));
     document.getElementById('level-' + id)?.classList.add('active');
-    title.innerText = `${current.id}: ${current.title}`;
-    objective.innerText = current.objective;
-    prompt.innerText = current.prompt;
-    hint.innerText = '';
+    document.getElementById('title').innerText = `${current.id}: ${current.title}`;
+    document.getElementById('objective').innerText = current.objective;
+    document.getElementById('prompt').innerText = current.prompt;
+    document.getElementById('hint').innerText = '';
     sqlEditor.textarea.value = '-- write your query here';
     sqlEditor.sync();
-    feedback.innerHTML = `<span class='muted'>Allowed: ${current.allowedCommands.join(', ')}</span>`;
-    result.innerHTML = '';
-    achievements.style.display = 'none';
-    achievements.innerHTML = '';
+    document.getElementById('feedback').innerHTML = `<span class='muted'>Allowed: ${current.allowedCommands.join(', ')}</span>`;
+    document.getElementById('result').innerHTML = '';
+    document.getElementById('achievements').style.display = 'none';
+    document.getElementById('achievements').innerHTML = '';
     await loadSchema(id);
   }
 
-  runBtn.onclick = async () => {
+  document.getElementById('runBtn').onclick = async () => {
     if (!current) return;
     const out = await api(`/api/levels/${current.id}/run`, { method:'POST', body: sqlEditor.textarea.value });
-    feedback.innerHTML = out.success
-      ? `<div class='ok'>${out.feedback} (+${out.xpAwarded} XP, score ${out.score})</div>`
-      : `<div class='err'>${out.feedback}</div>`;
+    document.getElementById('feedback').innerHTML = out.success
+      ? `<div class='ok'>${escapeHtml(out.feedback)} (+${out.xpAwarded} XP, score ${out.score})</div>`
+      : `<div class='err'>${escapeHtml(out.feedback)}</div>`;
 
     const unlocked = out.unlockedAchievements || [];
+    const achievements = document.getElementById('achievements');
     if (unlocked.length) {
       achievements.style.display = 'block';
       achievements.innerHTML = `
         <strong>Achievements unlocked</strong>
-        <ul>${unlocked.map(a => `<li>${a}</li>`).join('')}</ul>
+        <ul>${unlocked.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
       `;
     } else {
       achievements.style.display = 'none';
       achievements.innerHTML = '';
     }
 
-    renderTable(result, out.playerResult);
+    if (out.success) {
+      pendingScoreSubmission = { levelId: current.id, score: out.score };
+    }
+    updateSubmitPanel();
+
+    renderTable(document.getElementById('result'), out.playerResult);
     await loadProgress();
+    await loadUnlockedLevels();
+    renderLevels();
+    if (current) document.getElementById(`level-${current.id}`)?.classList.add('active');
   };
 
-  resetBtn.onclick = async () => {
+  document.getElementById('submitScoreBtn').onclick = async () => {
+    if (!pendingScoreSubmission) return;
+    const nicknameInput = document.getElementById('nicknameInput');
+    const status = document.getElementById('submitScoreStatus');
+    const nickname = (nicknameInput.value || '').trim() || 'Anonymous';
+
+    try {
+      await api('/api/leaderboard/submit', {
+        method: 'POST',
+        body: {
+          nickname,
+          score: pendingScoreSubmission.score,
+          levelId: pendingScoreSubmission.levelId
+        }
+      });
+      status.innerHTML = `<span class='ok'>Score submitted.</span>`;
+      pendingScoreSubmission = null;
+      updateSubmitPanel();
+      nicknameInput.value = '';
+      await loadLeaderboard();
+    } catch (e) {
+      status.innerHTML = `<span class='err'>${escapeHtml(e.message || 'Submit failed')}</span>`;
+    }
+  };
+
+  document.getElementById('resetBtn').onclick = async () => {
     if (!current) return;
     await api(`/api/levels/${current.id}/reset`, { method: 'POST' });
-    feedback.innerHTML = "<span class='muted'>Level database reset.</span>";
+    document.getElementById('feedback').innerHTML = "<span class='muted'>Level database reset.</span>";
     await loadSchema(current.id);
   };
 
-  hintBtn.onclick = () => {
+  document.getElementById('hintBtn').onclick = () => {
     if (!current || !current.hints?.length) return;
-    hint.innerText = current.hints[Math.min(hintIndex, current.hints.length-1)];
+    document.getElementById('hint').innerText = current.hints[Math.min(hintIndex, current.hints.length-1)];
     hintIndex++;
   };
 
-  sandboxBtn.onclick = async () => {
+  document.getElementById('sandboxBtn').onclick = async () => {
     const out = await api('/api/sandbox/run', { method:'POST', body: sandboxEditor.textarea.value });
     if (out.error) {
-      document.getElementById('sandboxResult').innerHTML = `<div class='err'>${out.error}</div>`;
+      document.getElementById('sandboxResult').innerHTML = `<div class='err'>${escapeHtml(out.error)}</div>`;
       return;
     }
     renderTable(document.getElementById('sandboxResult'), out);
   };
 
-  document.addEventListener('keydown', async (e) => {
+  document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 'Enter') {
       e.preventDefault();
-      runBtn.onclick();
+      document.getElementById('runBtn').onclick();
     }
   });
 
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      uiSettings = {
+        fontScale: Math.max(85, Math.min(130, Number(parsed.fontScale) || 100)),
+        highContrast: !!parsed.highContrast
+      };
+    } catch (_) {
+      uiSettings = { fontScale: 100, highContrast: false };
+    }
+  }
+
+  function saveSettings() {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(uiSettings));
+  }
+
+  function applySettings() {
+    document.documentElement.style.fontSize = `${uiSettings.fontScale}%`;
+    document.documentElement.classList.toggle('hc', uiSettings.highContrast);
+    document.getElementById('fontLabel').innerText = `${uiSettings.fontScale}%`;
+    document.getElementById('contrastBtn').innerText = uiSettings.highContrast ? 'On' : 'Off';
+  }
+
+  document.getElementById('fontDownBtn').onclick = () => {
+    uiSettings.fontScale = Math.max(85, uiSettings.fontScale - 5);
+    saveSettings();
+    applySettings();
+  };
+
+  document.getElementById('fontUpBtn').onclick = () => {
+    uiSettings.fontScale = Math.min(130, uiSettings.fontScale + 5);
+    saveSettings();
+    applySettings();
+  };
+
+  document.getElementById('contrastBtn').onclick = () => {
+    uiSettings.highContrast = !uiSettings.highContrast;
+    saveSettings();
+    applySettings();
+  };
+
+  loadSettings();
+  applySettings();
+  updateSubmitPanel();
+  loadLeaderboard();
   loadLevels();
 </script>
 </body>
