@@ -1,5 +1,35 @@
 # QA_REPORT.md
 
+## SQL Learning Game — Roadmap UI QA Re-run (post frontend commit 06b4e4a)
+- Date: 2026-03-02
+- Scope: roadmap nodes + avatar + node click → play view, list view toggle, /api/levels/roadmap consumption, gameplay smoke
+- Verdict: **FAIL**
+
+### Checklist
+1) **Roadmap nodes render + avatar positions** — ✅ PASS
+- `renderRoadmap()` + `updateRoadmapAvatar()` are wired in `initializeApp()` via `loadLevels()`.
+- Roadmap nodes now render from `/api/levels` + `/api/levels/unlocked` with locked/completed state, and avatar uses latest unlocked/current selection.
+
+2) **Clicking roadmap node loads play view** — ✅ PASS
+- Roadmap buttons call `pickLevel(id)` which hits `/api/levels/{id}` and updates title/objective/prompt/schema.
+
+3) **List view toggle works** — ✅ PASS
+- `toggleLevelListBtn` toggles `uiSettings.showLevelList` + persists to localStorage and controls `levelsListWrap` display.
+
+4) **UI consumes `/api/levels/roadmap`** — ❌ FAIL
+- Frontend does **not** call `/api/levels/roadmap`; roadmap is rendered from `/api/levels` + `/api/levels/unlocked` only.
+- API endpoint returns correct payload, but UI does not consume it.
+
+5) **Core gameplay smoke** — ✅ PASS
+- `GET /api/health` → `{ "ok": true }`
+- `POST /api/levels/level-1/run` with `SELECT name FROM customers ORDER BY name;` → `success:true`
+
+### Notes
+- Browser tool unavailable; UI checks are based on code-path verification + live API responses.
+- Server log: `SQL Learning Game running on http://localhost:7070`.
+
+---
+
 ## SQL Learning Game — Roadmap UI Sprint 3 QA
 - Date: 2026-03-02
 - Scope: roadmap UI nodes/locks/avatar, node → play view, gameplay smoke, unlocked routes
