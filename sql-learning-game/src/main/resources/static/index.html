@@ -27,14 +27,16 @@
     .roadmap-path{position:absolute;inset:0;z-index:0}
     .roadmap-nodes{position:relative;z-index:2;min-height:320px}
     .roadmap-node-wrap{position:absolute;display:flex;align-items:center;gap:10px}
-    .roadmap-node{width:46px;height:46px;border-radius:50%;border:2px solid rgba(255,255,255,0.6);background:var(--primary);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 12px rgba(0,0,0,0.35);transition:transform .15s ease,box-shadow .15s ease}
-    .roadmap-node:hover{transform:translateY(-2px) scale(1.04)}
+    .roadmap-node{width:46px;height:46px;border-radius:50%;border:2px solid rgba(255,255,255,0.6);background:var(--primary);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 12px rgba(0,0,0,0.35);transition:transform .2s ease,box-shadow .2s ease,filter .2s ease}
+    .roadmap-node:hover{transform:translateY(-2px) scale(1.05);filter:brightness(1.05)}
     .roadmap-node.locked{background:var(--locked);border-color:rgba(148,163,184,0.6);cursor:not-allowed;box-shadow:none;opacity:.65}
     .roadmap-node.completed{background:var(--ok);color:#0b1220}
     .roadmap-node.active{outline:3px solid rgba(79,70,229,0.6)}
     .roadmap-label{font-size:12px;color:var(--muted);max-width:190px}
     .roadmap-label strong{display:block;color:var(--text);font-size:13px}
-    .roadmap-avatar{position:absolute;width:34px;height:34px;border-radius:50%;background:#fbbf24;color:#0b1220;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 6px 14px rgba(0,0,0,0.35);z-index:3;transition:transform .2s ease}
+    .roadmap-avatar{position:absolute;width:34px;height:34px;border-radius:50%;background:#fbbf24;color:#0b1220;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 6px 14px rgba(0,0,0,0.35);z-index:3;transition:transform .35s ease,box-shadow .35s ease}
+    .roadmap-avatar::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid rgba(251,191,36,0.4);animation:pulse 2.4s ease-in-out infinite}
+    @keyframes pulse{0%{transform:scale(0.85);opacity:.6}50%{transform:scale(1.15);opacity:.25}100%{transform:scale(0.85);opacity:.6}}
     .levels-toggle{display:flex;align-items:center;justify-content:space-between;margin:10px 0 6px 0}
   </style>
 </head>
@@ -181,7 +183,8 @@ function renderRoadmap(){const wrap=document.getElementById('roadmapWrap');const
 positions.forEach((pos)=>{const level=levels.find(l=>l.id===pos.id);const done=completedLevels.has(pos.id);const locked=isLevelLocked(pos.id);const wrapNode=document.createElement('div');wrapNode.className='roadmap-node-wrap';wrapNode.style.left=`${pos.x}px`;wrapNode.style.top=`${pos.y}px`;const btn=document.createElement('button');btn.className=`roadmap-node ${locked?'locked':''} ${done?'completed':''}`;btn.dataset.levelId=pos.id;btn.dataset.x=pos.x;btn.dataset.y=pos.y;btn.title=`${level?.id||pos.id} · ${level?.title||''}`;btn.innerText=String(pos.idx+1);btn.disabled=locked;btn.onclick=()=>{if(!locked) pickLevel(pos.id);};const label=document.createElement('div');label.className='roadmap-label';label.innerHTML=`<strong>${escapeHtml(level?.title||pos.id)}</strong>${escapeHtml(level?.difficulty||'')}`;wrapNode.appendChild(btn);wrapNode.appendChild(label);nodesEl.appendChild(wrapNode);});const unlockedCount=Array.from(unlockedLevels||[]).length;meta.innerText=`Unlocked ${unlockedCount}/${levels.length}`;updateRoadmapSelection();}
 function getLatestUnlockedLevelId(){let latest=null;levels.forEach(l=>{if(unlockedLevels.has(l.id)) latest=l.id;});return latest;}
 function updateRoadmapSelection(){const nodes=document.querySelectorAll('.roadmap-node');nodes.forEach(n=>{const id=n.dataset.levelId;n.classList.toggle('active',id===current?.id);});updateRoadmapAvatar();}
-function updateRoadmapAvatar(){const avatar=document.getElementById('roadmapAvatar');if(!avatar) return;const targetId=(current&&unlockedLevels.has(current.id))?current.id:getLatestUnlockedLevelId();if(!targetId){avatar.style.display='none';return;}const targetBtn=document.querySelector(`.roadmap-node[data-level-id='${targetId}']`);if(!targetBtn){avatar.style.display='none';return;}const x=Number(targetBtn.dataset.x||0);const y=Number(targetBtn.dataset.y||0);const nodeSize=46;const avatarSize=34;avatar.style.display='flex';avatar.style.transform=`translate(${x+(nodeSize-avatarSize)/2}px, ${y-38}px)`;}
+function getFirstUnlockedLevelId(){for(const l of levels){if(unlockedLevels.has(l.id)) return l.id;}return null;}
+function updateRoadmapAvatar(){const avatar=document.getElementById('roadmapAvatar');if(!avatar) return;const targetId=(current&&unlockedLevels.has(current.id))?current.id:(getLatestUnlockedLevelId()||getFirstUnlockedLevelId());if(!targetId){avatar.style.display='none';return;}const targetBtn=document.querySelector(`.roadmap-node[data-level-id='${targetId}']`);if(!targetBtn){avatar.style.display='none';return;}const x=Number(targetBtn.dataset.x||0);const y=Number(targetBtn.dataset.y||0);const nodeSize=46;const avatarSize=34;avatar.style.display='flex';avatar.style.transform=`translate(${x+(nodeSize-avatarSize)/2}px, ${y-38}px)`;}
 async function loadProgress(){const p=await api('/api/progress');completedLevels=new Set(p.completedLevels||[]);document.getElementById('progress').innerText=`XP: ${p.totalXp} | Player Level: ${Math.max(1,Math.floor(p.totalXp/250)+1)}\nCompleted: ${completedLevels.size}`;}
 async function loadUnlockedLevels(){try{const out=await api('/api/levels/unlocked');const unlocked=Array.isArray(out)?out:(out.unlockedLevels||[]);if(unlocked.length){unlockedLevels=new Set(unlocked);return;}}catch(_){ } unlockedLevels=new Set(levels.map(l=>l.id));}
 async function loadLevels(){
