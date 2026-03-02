@@ -184,7 +184,33 @@ function updateRoadmapSelection(){const nodes=document.querySelectorAll('.roadma
 function updateRoadmapAvatar(){const avatar=document.getElementById('roadmapAvatar');if(!avatar) return;const targetId=(current&&unlockedLevels.has(current.id))?current.id:getLatestUnlockedLevelId();if(!targetId){avatar.style.display='none';return;}const targetBtn=document.querySelector(`.roadmap-node[data-level-id='${targetId}']`);if(!targetBtn){avatar.style.display='none';return;}const x=Number(targetBtn.dataset.x||0);const y=Number(targetBtn.dataset.y||0);const nodeSize=46;const avatarSize=34;avatar.style.display='flex';avatar.style.transform=`translate(${x+(nodeSize-avatarSize)/2}px, ${y-38}px)`;}
 async function loadProgress(){const p=await api('/api/progress');completedLevels=new Set(p.completedLevels||[]);document.getElementById('progress').innerText=`XP: ${p.totalXp} | Player Level: ${Math.max(1,Math.floor(p.totalXp/250)+1)}\nCompleted: ${completedLevels.size}`;}
 async function loadUnlockedLevels(){try{const out=await api('/api/levels/unlocked');const unlocked=Array.isArray(out)?out:(out.unlockedLevels||[]);if(unlocked.length){unlockedLevels=new Set(unlocked);return;}}catch(_){ } unlockedLevels=new Set(levels.map(l=>l.id));}
-async function loadLevels(){levels=await api('/api/levels');await loadProgress();await loadUnlockedLevels();renderLevels();renderRoadmap();const firstUnlocked=levels.find(l=>unlockedLevels.has(l.id));if(firstUnlocked) pickLevel(firstUnlocked.id);}
+async function loadLevels(){
+  try{
+    const roadmap=await api('/api/levels/roadmap');
+    const items=roadmap?.levels||roadmap||[];
+    if(Array.isArray(items)&&items.length){
+      levels=items.map(l=>({id:l.id||l.levelId||l.level||'',title:l.title||l.name||l.id,difficulty:l.difficulty||''})).filter(l=>l.id);
+      const unlocked=items.filter(l=>l.unlocked).map(l=>l.id||l.levelId||l.level).filter(Boolean);
+      const completed=items.filter(l=>l.completed).map(l=>l.id||l.levelId||l.level).filter(Boolean);
+      unlockedLevels=new Set(unlocked);
+      completedLevels=new Set(completed);
+      await loadProgress();
+      renderLevels();
+      renderRoadmap();
+      const firstUnlocked=levels.find(l=>unlockedLevels.has(l.id));
+      if(firstUnlocked) pickLevel(firstUnlocked.id);
+      return;
+    }
+  } catch(_) {}
+
+  levels=await api('/api/levels');
+  await loadProgress();
+  await loadUnlockedLevels();
+  renderLevels();
+  renderRoadmap();
+  const firstUnlocked=levels.find(l=>unlockedLevels.has(l.id));
+  if(firstUnlocked) pickLevel(firstUnlocked.id);
+}
 
 function renderLeaderboardList(listId,emptyId,rows,rowHtml){const list=document.getElementById(listId),empty=document.getElementById(emptyId);list.innerHTML='';const data=Array.isArray(rows)?rows:[];if(!data.length){empty.style.display='block';return;}empty.style.display='none';data.forEach(e=>{const li=document.createElement('li');li.innerHTML=rowHtml(e);list.appendChild(li);});}
 async function loadLeaderboard(){try{const [globalRows,levelRows]=await Promise.all([api('/api/leaderboard/top-players?limit=8').catch(()=>api('/api/leaderboard/top?limit=8')),current?api(`/api/leaderboard/top?limit=8&levelId=${encodeURIComponent(current.id)}`):Promise.resolve([])]);
