@@ -1,5 +1,35 @@
 # QA_REPORT.md
 
+## SQL Learning Game — Roadmap UI Sprint 3 QA
+- Date: 2026-03-02
+- Scope: roadmap UI nodes/locks/avatar, node → play view, gameplay smoke, unlocked routes
+- Verdict: **FAIL**
+
+### Checklist
+1) **Roadmap nodes render with correct locked/unlocked/completed states** — ❌ FAIL
+- UI serves roadmap shell but no JS renders nodes into `#roadmapNodes`.
+- `/api/levels/roadmap` returns data (unlocked true for levels 1–5, completed for levels 1–4), but UI doesn’t consume it.
+- Result: nodes not visible, state indicators never render.
+
+2) **Avatar positioning reflects progress** — ❌ FAIL
+- `#roadmapAvatar` exists in DOM, but no script positions it relative to current progress.
+- Avatar stays at default position.
+
+3) **Clicking roadmap node opens play view and loads level** — ❌ FAIL
+- No roadmap nodes are rendered, so click flow cannot be exercised.
+
+4) **Core gameplay still works** — ✅ PASS
+- `GET /api/health` → `{"ok":true}`
+- `POST /api/levels/level-1/run` with `SELECT name FROM customers ORDER BY name;` → `success:true`
+
+5) **No regressions in unlocked routes / smoke** — ✅ PASS
+- `GET /api/levels/unlocked` and `/api/unlocked-levels` return expected payloads
+- `/api/levels/roadmap` responds with full roadmap data
+
+### Notes
+- Served `index.html` contains roadmap markup/CSS and a list-view toggle, but JS wiring for roadmap rendering + toggle is missing.
+- Source `src/main/resources/static/index.html` does not match served `target/classes/static/index.html` (roadmap UI only appears in target build output).
+
 ## SQL Learning Game v1.1 — QA Sprint Re-Validation (post telemetry/playtest + content polish)
 - Date: 2026-03-01
 - Scope: Stability re-check (API/routes/guardrails), telemetry/playtest non-regression, repetition-first + ramp heuristic, and scope-creep audit
