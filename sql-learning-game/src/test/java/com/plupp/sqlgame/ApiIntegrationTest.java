@@ -77,6 +77,20 @@ class ApiIntegrationTest {
         assertTrue(((List<?>) progress.get("completedLevels")).contains("level-1"));
         assertTrue((Integer) progress.get("totalXp") > 0);
 
+        List<Map<String, Object>> roadmap = getJson(baseUrl + "/api/levels/roadmap", new TypeReference<>() {});
+        assertFalse(roadmap.isEmpty());
+        Map<String, Object> firstRoadmap = roadmap.get(0);
+        assertEquals("level-1", firstRoadmap.get("id"));
+        assertEquals(1, ((Number) firstRoadmap.get("order")).intValue());
+        assertEquals(true, firstRoadmap.get("unlocked"));
+        assertEquals(true, firstRoadmap.get("completed"));
+        if (roadmap.size() > 1) {
+            Map<String, Object> secondRoadmap = roadmap.get(1);
+            assertEquals(2, ((Number) secondRoadmap.get("order")).intValue());
+            assertEquals(true, secondRoadmap.get("unlocked"));
+            assertEquals(false, secondRoadmap.get("completed"));
+        }
+
         Map<String, Object> unlockedCompat = getJson(baseUrl + "/api/unlocked-levels", new TypeReference<>() {});
         assertTrue(((List<?>) unlockedCompat.get("unlocked")).contains("level-1"));
         assertTrue(((List<?>) unlockedCompat.get("unlockedLevels")).contains("level-1"));

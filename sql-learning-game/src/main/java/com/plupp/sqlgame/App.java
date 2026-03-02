@@ -15,6 +15,7 @@ import com.plupp.sqlgame.store.ProgressStore;
 import com.plupp.sqlgame.store.TelemetryStore;
 import io.javalin.Javalin;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +67,29 @@ public class App {
                 "objective", l.objective,
                 "xp", l.xp
         )).toList()));
+
+        app.get("/api/levels/roadmap", ctx -> {
+            ProgressState progress = progressStore.load();
+            List<LevelDefinition> allLevels = levels.list();
+            Set<String> completed = progress.completedLevels == null ? Set.of() : progress.completedLevels;
+            List<Map<String, Object>> roadmap = new ArrayList<>();
+            for (int i = 0; i < allLevels.size(); i++) {
+                LevelDefinition level = allLevels.get(i);
+                boolean unlocked = unlockService.isUnlocked(level, i, allLevels, progress);
+                boolean done = completed.contains(level.id);
+                roadmap.add(Map.of(
+                        "id", level.id,
+                        "title", level.title,
+                        "difficulty", level.difficulty,
+                        "objective", level.objective,
+                        "xp", level.xp,
+                        "order", i + 1,
+                        "unlocked", unlocked,
+                        "completed", done
+                ));
+            }
+            ctx.json(roadmap);
+        });
 
         app.get("/api/levels/unlocked", ctx -> {
             ProgressState progress = progressStore.load();
